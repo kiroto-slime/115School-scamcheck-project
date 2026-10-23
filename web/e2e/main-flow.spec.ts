@@ -135,6 +135,11 @@ test('導覽列可常駐或自動隱藏，橫向遊戲取消左側占位', async
 
 test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且手機可操作', async ({ page }, info) => {
   test.skip(info.project.name !== 'Desktop', '同一情境會直接檢查桌面與375px版面')
+  for (const [path, type] of [['css/style.css', 'text/css'], ['css/ex.css', 'text/css'], ['js/ex.js', 'javascript']]) {
+    const response = await page.request.get(`/games/block-parkour/${path}`)
+    expect(response.ok()).toBe(true)
+    expect(response.headers()['content-type']).toContain(type)
+  }
   let reads = 0
   await page.route('**/api/game/question', async route => {
     expect(route.request().method()).toBe('GET'); reads++
@@ -142,6 +147,9 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
   })
   await page.goto('/game')
   await expect(page.getByRole('heading', { name: '小方塊跑酷', exact: true })).toBeVisible()
+  const brand = (await page.locator('.brand').boundingBox())!
+  const toggle = (await page.locator('.sidebar-toggle').boundingBox())!
+  expect(Math.abs(brand.y + brand.height / 2 - toggle.y - toggle.height / 2)).toBeLessThan(2)
   const game = page.frameLocator('iframe[title="小方塊跑酷遊戲"]')
   await game.getByRole('button', { name: '關閉音效', exact: true }).click()
   await expect(game.getByRole('button', { name: '開啟音效', exact: true })).toHaveAttribute('aria-pressed', 'false')
