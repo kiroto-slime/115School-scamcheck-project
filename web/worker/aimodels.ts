@@ -35,6 +35,7 @@ export function modelLabel(id: string): string {
   return id
     .replace(/-it$/, '')
     .replace(/-preview$/, '')
+    .replace(/-a\d+b$/, '')
     .split('-')
     .map((w) => (/^\d/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(' ')
