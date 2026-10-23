@@ -58,7 +58,7 @@ export function ModeBanner() {
   if (!health) return null
   const m = health.modes
   const items = [
-    m.ai === 'gemini' ? `AI：Gemini 可用（${m.ai_model}）` : 'AI：未設定金鑰（圖片、影片需手動輸入文字）',
+    m.ai !== 'gemini' ? 'AI：未設定金鑰（圖片、影片需手動輸入文字）' : m.ai_model ? `AI：可用（${m.ai_model}）` : 'AI：今日額度已用完',
     m.research_mode === 'formal' ? '研究：正式' : '研究：模擬（DEMO）',
   ]
   return (

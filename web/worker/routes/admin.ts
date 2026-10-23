@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin } from '../auth'
 import { clearDemo, seedDemo } from '../demo'
 import { Gemini } from '../gemini'
+import { currentModel, modelStates } from '../aimodels'
 import { aiMode, AppSettings, saveSettings } from '../settings'
 import { computeStatistics, exportData } from '../stats'
 import { audit, HttpError, newId, nowIso, parseJson } from '../util'
@@ -120,7 +121,12 @@ guarded.put('/settings', async (c) => {
     research_mode: z.enum(['simulation', 'formal']),
     research_group_mode: z.enum(['balanced', 'A', 'B']),
     research_collection_enabled: z.boolean(),
-    gemini_model: z.string().regex(/^[a-z0-9][a-z0-9.\-]{2,60}$/),
+    gemini_models: z.array(z.object({
+      id: z.string().regex(/^[a-z0-9][a-z0-9.\-]{2,60}$/),
+      daily: z.number().int().min(0).max(1_000_000),
+      rpm: z.number().int().min(1).max(10_000),
+      media: z.boolean(),
+    })).min(1).max(20),
     gemini_daily_limit: z.number().int().min(0).max(100_000),
     cofacts_enabled: z.boolean(),
     cofacts_daily_limit: z.number().int().min(0).max(100_000),
@@ -160,10 +166,25 @@ guarded.put('/tw165/meta', async (c) => {
 
 guarded.post('/ai/test', async (c) => {
   const s = c.get('settings')
-  if (aiMode(c.env) !== 'gemini') return c.json({ ok: false, model: s.gemini_model, message: '尚未設定 GEMINI_API_KEY（請在 Cloudflare 後台的 Variables and Secrets 新增）。' })
-  const out = await new Gemini(c.env, s.gemini_model).testConnection()
-  await audit(c.env.DB, c.get('admin'), 'ai_test', s.gemini_model, out.ok ? 'ok' : 'failed')
+  const cur = currentModel(await modelStates(c.env.DB, s.gemini_models))
+  const id = cur?.id ?? s.gemini_models[0]?.id ?? ''
+  if (aiMode(c.env) !== 'gemini') return c.json({ ok: false, model: id, message: '尚未設定 GEMINI_API_KEY（請在 Cloudflare 後台的 Variables and Secrets 新增）。' })
+  // 只測目前會用到的模型，避免把每個模型的免費額度都用掉
+  const out = await new Gemini(c.env, id).testConnection()
+  await audit(c.env.DB, c.get('admin'), 'ai_test', id, out.ok ? 'ok' : 'failed')
   return c.json(out)
+})
+
+/** 列出這把金鑰能用的模型代號（不消耗分析額度），用來設定模型順序 */
+guarded.get('/ai/models', async (c) => {
+  if (aiMode(c.env) !== 'gemini') throw new HttpError(400, '尚未設定 GEMINI_API_KEY。')
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { headers: { 'x-goog-api-key': c.env.GEMINI_API_KEY ?? '' } })
+  if (!r.ok) throw new HttpError(502, `無法取得模型清單（${r.status}），請確認金鑰是否正確。`)
+  const data = (await r.json()) as { models?: { name?: string; displayName?: string; supportedGenerationMethods?: string[] }[] }
+  const models = (data.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => ({ id: String(m.name ?? '').replace(/^models\//, ''), name: m.displayName ?? '' }))
+  return c.json({ models })
 })
 
 guarded.post('/demo/seed', async (c) => {

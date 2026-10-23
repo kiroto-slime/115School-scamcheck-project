@@ -5,7 +5,7 @@
  * - 影片走 Files API：瀏覽器上傳的原始資料直接「串流轉送」給 Google，Worker 不解碼（省 CPU）。
  * - AI 結果與規則風險指數分開，不混入規則分數。
  */
-import { b64url, fromB64url, hmacHex, safeEqual, sleep, takeDailyQuota } from './util'
+import { b64url, fromB64url, hmacHex, safeEqual, sleep } from './util'
 
 const BASE = 'https://generativelanguage.googleapis.com'
 const INTERACTIONS = `${BASE}/v1beta/interactions`
@@ -44,6 +44,8 @@ export interface AIResult {
   advice: string[]
   media_description: string | null
   sent_media: string[]
+  /** 因額度改用其他模型時的說明 */
+  fallback_note?: string | null
 }
 
 const result = (status: AIResult['status'], summary: string, extra: Partial<AIResult> = {}): AIResult => ({
@@ -62,12 +64,21 @@ const ERROR_ZH: Record<number, string> = {
   429: 'Gemini 免費額度已用完或請求太頻繁，請稍後再試。',
 }
 
-export class GeminiError extends Error {}
+export class GeminiError extends Error {
+  constructor(message: string, public status = 0, public raw = '') {
+    super(message)
+  }
+}
 
-async function errorMessage(r: Response): Promise<string> {
+async function toError(r: Response): Promise<GeminiError> {
+  const raw = await r.text().catch(() => '')
+  return new GeminiError(errorMessage(r.status, raw), r.status, raw.slice(0, 2000))
+}
+
+function errorMessage(status: number, raw: string): string {
   let detail = ''
   try {
-    let body = await r.json<unknown>()
+    let body = JSON.parse(raw) as unknown
     if (Array.isArray(body)) body = body[0]
     detail = String((body as { error?: { message?: string } })?.error?.message ?? '').slice(0, 200)
   } catch {
@@ -75,7 +86,7 @@ async function errorMessage(r: Response): Promise<string> {
   }
   if (detail.includes('API key not valid') || detail.includes('API_KEY_INVALID')) return 'Gemini API 金鑰無效，請重新複製 GEMINI_API_KEY（注意前後不要有空白）。'
   if (detail.includes('location is not supported')) return 'Google 不支援目前伺服器所在地區使用 Gemini API，請稍後再試。'
-  const base = ERROR_ZH[r.status] ?? `Gemini 服務暫時無法使用（${r.status}）。`
+  const base = ERROR_ZH[status] ?? `Gemini 服務暫時無法使用（${status}）。`
   return detail ? `${base}（Google 訊息：${detail}）` : base
 }
 
@@ -129,16 +140,15 @@ export class Gemini {
         await sleep(this.retryDelayMs)
         continue
       }
-      if (!r.ok) throw new GeminiError(await errorMessage(r))
+      if (!r.ok) throw await toError(r)
       return r.json()
     }
     throw new GeminiError('Gemini 服務暫時無法使用。')
   }
 
-  async analyze(text: string, media: AIMedia[], dailyLimit: number): Promise<AIResult> {
+  /** 用這個模型分析一次；失敗時丟出 GeminiError（由 aimodels.ts 決定要不要換模型） */
+  async analyzeOnce(text: string, media: AIMedia[]): Promise<AIResult> {
     const sent = [...new Set(media.map((m) => m.kind))].sort()
-    if (!(await takeDailyQuota(this.env.DB, 'gemini', dailyLimit)))
-      return result('rate_limited', '今日 AI 分析次數已達上限（可在管理頁「系統設定」調整）。', { model: this.model })
     let prompt = '請分析以下內容是否有詐騙或交易風險，並依指定格式回覆。'
     if (text.trim()) prompt += `\n<<<使用者內容開始>>>\n${text.slice(0, 8000)}\n<<<使用者內容結束>>>`
     if (media.length) prompt += '\n（另附使用者上傳的圖片或影片，請一併分析。）'
@@ -146,26 +156,21 @@ export class Gemini {
       { type: 'text', text: prompt },
       ...media.map((m) => (m.kind === 'image' ? { type: 'image', data: m.base64, mime_type: m.mime } : { type: 'video', uri: m.uri, mime_type: m.mime })),
     ]
-    try {
-      const data = await this.post({
-        model: this.model, system_instruction: SYSTEM_PROMPT, input,
-        response_format: { type: 'text', mime_type: 'application/json', schema: SCHEMA },
-        generation_config: { max_output_tokens: 4096 }, store: false,
-      }) as { status?: string }
-      if (data.status && data.status !== 'completed') throw new GeminiError('Gemini 沒有完成分析（可能被安全機制擋下）。')
-      const parsed = parseJsonLoose(extractText(data))
-      const lvl = String(parsed.risk_level ?? '')
-      const list = (v: unknown) => (Array.isArray(v) ? v.slice(0, 8).map((x) => String(x).slice(0, 300)) : [])
-      return result('ok', String(parsed.summary ?? '').slice(0, 1200), {
-        external: true, model: this.model, sent_media: sent,
-        risk_level: ['高', '中', '低', '無法判斷'].includes(lvl) ? lvl : '無法判斷',
-        risk_points: list(parsed.risk_points), advice: list(parsed.advice),
-        media_description: String(parsed.media_description ?? '').slice(0, 800) || null,
-      })
-    } catch (e) {
-      const msg = e instanceof GeminiError ? e.message : 'Gemini 回覆格式無法解讀，請再試一次。'
-      return result('error', msg, { external: true, model: this.model, sent_media: sent })
-    }
+    const data = await this.post({
+      model: this.model, system_instruction: SYSTEM_PROMPT, input,
+      response_format: { type: 'text', mime_type: 'application/json', schema: SCHEMA },
+      generation_config: { max_output_tokens: 4096 }, store: false,
+    }) as { status?: string }
+    if (data.status && data.status !== 'completed') throw new GeminiError('Gemini 沒有完成分析（可能被安全機制擋下）。')
+    const parsed = parseJsonLoose(extractText(data))
+    const lvl = String(parsed.risk_level ?? '')
+    const list = (v: unknown) => (Array.isArray(v) ? v.slice(0, 8).map((x) => String(x).slice(0, 300)) : [])
+    return result('ok', String(parsed.summary ?? '').slice(0, 1200), {
+      external: true, model: this.model, sent_media: sent,
+      risk_level: ['高', '中', '低', '無法判斷'].includes(lvl) ? lvl : '無法判斷',
+      risk_points: list(parsed.risk_points), advice: list(parsed.advice),
+      media_description: String(parsed.media_description ?? '').slice(0, 800) || null,
+    })
   }
 
   async testConnection(): Promise<{ ok: boolean; model: string; reply?: string; message?: string }> {
@@ -188,13 +193,13 @@ export class Gemini {
       body: JSON.stringify({ file: { display_name: 'scamcheck-video' } }),
     })
     const uploadUrl = start.headers.get('x-goog-upload-url')
-    if (!start.ok || !uploadUrl) throw new GeminiError(start.ok ? 'Gemini 沒有回傳上傳網址。' : await errorMessage(start))
+    if (!start.ok || !uploadUrl) throw start.ok ? new GeminiError('Gemini 沒有回傳上傳網址。') : await toError(start)
     const up = await this.fetcher(uploadUrl, {
       method: 'POST',
       headers: { 'Content-Length': String(size), 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' },
       body,
     })
-    if (!up.ok) throw new GeminiError(await errorMessage(up))
+    if (!up.ok) throw await toError(up)
     const data = await up.json<{ file?: { name?: string; uri?: string } }>()
     if (!data.file?.name || !data.file?.uri) throw new GeminiError('Gemini 上傳回應缺少檔案資訊。')
     return { name: data.file.name, uri: data.file.uri }
@@ -205,7 +210,7 @@ export class Gemini {
     const until = Date.now() + timeoutMs
     for (;;) {
       const r = await this.fetcher(`${BASE}/v1beta/${name}`, { headers: this.headers() })
-      if (!r.ok) throw new GeminiError(await errorMessage(r))
+      if (!r.ok) throw await toError(r)
       const f = await r.json<{ state?: string }>()
       if (!f.state || f.state === 'ACTIVE') return
       if (f.state === 'FAILED') throw new GeminiError('Gemini 無法處理這部影片，請換一個檔案或改用補充文字。')

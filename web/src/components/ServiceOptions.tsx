@@ -9,6 +9,10 @@ export interface ServiceOption {
   to: string
   checked: boolean
   onChange: (v: boolean) => void
+  /** 標籤旁的小提示（例如目前模型與剩餘次數） */
+  chip?: ReactNode
+  /** 展開說明裡的補充（例如模型順序） */
+  detail?: ReactNode
 }
 
 const ICON: Record<string, ReactNode> = {
@@ -64,6 +68,7 @@ export function ServiceOptions({ options }: { options: ServiceOption[] }) {
           <input type="checkbox" className="h-5 w-5 shrink-0" checked={o.checked} onChange={(e) => o.onChange(e.target.checked)} />
           <span className="text-sm">{o.label}</span>
           <SendTags sends={o.sends} />
+          {o.chip}
         </label>
       ))}
       <details className="rounded-xl bg-slate-50 p-3">
@@ -74,6 +79,7 @@ export function ServiceOptions({ options }: { options: ServiceOption[] }) {
             {options.map((o) => (
               <li key={o.key} className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{o.label}</span><span className="text-slate-500">→ {o.to}</span><SendTags sends={o.sends} />
+                {o.detail && <div className="w-full">{o.detail}</div>}
               </li>
             ))}
           </ul>

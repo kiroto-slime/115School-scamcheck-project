@@ -42,6 +42,7 @@ export interface Health {
     tw165: { available: boolean; origin?: string | null; updated_at: string | null; count: number }
     ai: 'disabled' | 'gemini'
     ai_model: string | null
+    ai_models?: AiModelState[]
     research_mode: 'simulation' | 'formal'
     research_collection_enabled: boolean
     admin_configured: boolean
@@ -94,11 +95,17 @@ export interface AnalysisResult {
   ai: {
     provider: string; status: string; is_demo: boolean; summary: string | null; external: boolean; model?: string | null
     risk_level?: string | null; risk_points?: string[]; advice?: string[]; media_description?: string | null; sent_media?: string[]
+    fallback_note?: string | null
   }
   media: { ocr_status?: string; frames_extracted?: number; duration_seconds?: number | null; notes?: string[]; used_manual_text?: boolean }
   checked_at: string
   extracted_text_preview?: string
 }
+
+export interface AiModelState { id: string; label: string; remaining: number; daily: number; media: boolean }
+
+/** 會被使用的模型：有圖片／影片時只看能分析媒體的 */
+export const currentAiModel = (models: AiModelState[] = [], needMedia = false) => models.find((m) => m.remaining > 0 && (!needMedia || m.media)) ?? null
 
 export interface UrlCheck { status: string; message: string; threats: { host_masked: string; detail: string }[] }
 

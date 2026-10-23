@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, ApiError, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
+import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
 import { Alert, Spinner, useHealth } from '../components/ui'
@@ -34,6 +34,9 @@ export default function Check() {
   const [useAi, setUseAi] = useState(true)
   const aiAvailable = health?.modes.ai === 'gemini'
   const cofactsAvailable = health?.modes.cofacts === 'live'
+  const aiModels = health?.modes.ai_models ?? []
+  const aiNow = currentAiModel(aiModels, mode !== 'text')
+  const aiLeft = aiModels.filter((m) => mode === 'text' || m.media).reduce((n, m) => n + m.remaining, 0)
   const googleAvailable = health?.modes.google === 'live'
   const vtAvailable = health?.modes.virustotal === 'live'
   const [queryGoogle, setQueryGoogle] = useState(true)
@@ -196,7 +199,15 @@ export default function Check() {
         </p>
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts },
-          aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi },
+          aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi,
+            chip: aiNow
+              ? <span className="rounded-md bg-teal-50 px-1.5 py-0.5 text-xs text-teal-800">目前：{aiNow.label}・今日剩 {aiNow.remaining} 次</span>
+              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日 AI 額度已用完</span>,
+            detail: (
+              <p className="text-xs text-slate-600">
+                免費額度用完會自動換下一個模型（共剩 {aiLeft} 次）：{aiModels.filter((m) => mode === 'text' || m.media).map((m) => `${m.label} 剩 ${m.remaining}`).join(' → ')}
+              </p>
+            ) },
           googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle },
           vtAvailable && { key: 'vt', label: 'VirusTotal 病毒掃描', sends: ['網域'], to: 'VirusTotal（只查已有的掃描紀錄）', checked: queryVt, onChange: setQueryVt },
         ].filter(Boolean) as ServiceOption[])} />

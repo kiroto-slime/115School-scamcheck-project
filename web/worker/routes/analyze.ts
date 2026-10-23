@@ -90,7 +90,7 @@ analyze.post('/media/video', async (c) => {
       await w.abort(e)
     }
   })()
-  const gemini = new Gemini(c.env, c.get('settings').gemini_model)
+  const gemini = new Gemini(c.env, c.get('settings').gemini_models[0]?.id ?? 'gemini')
   const [file] = await Promise.all([gemini.uploadStream(readable, size, mime === 'video/quicktime' ? 'video/mov' : 'video/mp4'), pump])
   return c.json({ media_ref: await signMediaRef(c.env, { ...file, mime: mime === 'video/quicktime' ? 'video/mov' : 'video/mp4' }), expires_in_seconds: 1800 })
 })
@@ -104,7 +104,7 @@ analyze.post('/analyze/video', async (c) => {
   const ref = b.media_ref ? await verifyMediaRef(env, b.media_ref) : null
   if (b.media_ref && !ref) throw new HttpError(400, '影片上傳憑證無效或已過期，請重新上傳。')
   const notes: string[] = []
-  const gemini = new Gemini(env, s.gemini_model)
+  const gemini = new Gemini(env, s.gemini_models[0]?.id ?? 'gemini')
   try {
     if (ref) {
       await gemini.waitActive(ref.name)

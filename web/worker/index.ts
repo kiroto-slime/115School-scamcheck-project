@@ -11,6 +11,7 @@ import { research } from './routes/research'
 import { RULE_VERSION } from './rules'
 import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
 import { tw165Meta } from './urlcheck'
+import { currentModel, modelStates } from './aimodels'
 import { HttpError } from './util'
 
 export const app = new Hono<AppEnv>().basePath('/api')
@@ -26,6 +27,8 @@ app.use('*', async (c, next) => {
 app.get('/health', async (c) => {
   const s = c.get('settings')
   const tw165 = await tw165Meta(c.env)
+  const models = aiMode(c.env) === 'gemini' ? await modelStates(c.env.DB, s.gemini_models) : []
+  const cur = currentModel(models)
   return c.json({
     status: 'ok',
     version: c.env.APP_VERSION,
@@ -36,7 +39,8 @@ app.get('/health', async (c) => {
       virustotal: virusTotalMode(c.env),
       tw165: { available: tw165.available, origin: tw165.origin ?? null, updated_at: tw165.updated_at ?? null, count: tw165.count ?? 0 },
       ai: aiMode(c.env),
-      ai_model: aiMode(c.env) === 'gemini' ? s.gemini_model : null,
+      ai_model: cur?.label ?? null,
+      ai_models: models.filter((m) => !m.unavailable),
       research_mode: s.research_mode,
       research_collection_enabled: s.research_collection_enabled,
       admin_configured: Boolean(c.env.ADMIN_PASSWORD),

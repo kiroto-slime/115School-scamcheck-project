@@ -1,11 +1,14 @@
 /** 系統設定：預設值 + 管理頁可修改的值（存在 D1 app_settings），取代 v0.1 的 config.env */
+import { DEFAULT_MODELS, type ModelConf } from './aimodels'
 import { nowIso } from './util'
 
 export interface AppSettings {
   research_mode: 'simulation' | 'formal'
   research_group_mode: 'balanced' | 'A' | 'B'
   research_collection_enabled: boolean
-  gemini_model: string
+  /** 依序使用的模型；用完一個換下一個 */
+  gemini_models: ModelConf[]
+  /** 整個網站每天最多呼叫幾次 AI（所有模型合計） */
   gemini_daily_limit: number
   cofacts_enabled: boolean
   cofacts_daily_limit: number
@@ -20,8 +23,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   research_mode: 'simulation',
   research_group_mode: 'balanced',
   research_collection_enabled: true,
-  gemini_model: 'gemini-3.8-flash',
-  gemini_daily_limit: 300,
+  gemini_models: DEFAULT_MODELS,
+  gemini_daily_limit: 2000,
   cofacts_enabled: true,
   cofacts_daily_limit: 500,
   google_daily_limit: 1000,

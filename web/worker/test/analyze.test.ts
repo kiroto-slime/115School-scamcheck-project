@@ -143,12 +143,6 @@ describe('Gemini', () => {
     expect(extractText({ outputs: [{ type: 'text', text: 'hi' }] })).toBe('hi')
   })
 
-  it('每日上限', async () => {
-    mockFetch(() => geminiReply(GOOD))
-    const g = new Gemini({ ...env, ...GEMINI } as Env, 'gemini-3.8-flash')
-    expect((await g.analyze('測試', [], 1)).status).toBe('ok')
-    expect((await g.analyze('測試', [], 1)).status).toBe('rate_limited')
-  })
 
   it('fetch 不能以物件方法呼叫（模擬 Cloudflare 的 Illegal invocation）', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(function (this: unknown) {

@@ -1,7 +1,8 @@
 /** 串接 Cofacts／網址安全檢查／Google 事實查核 → 規則分析 → Gemini → 只儲存衍生結果（不存原文、不存完整網址） */
 import { cofactsLookup, disabledLookup, LICENSE, skippedLookup } from './cofacts'
 import { factCheckLookup, FactCheckResult } from './factcheck'
-import { AIMedia, disabledResult, Gemini, notRequestedResult } from './gemini'
+import { analyzeWithFallback } from './aimodels'
+import { AIMedia, disabledResult, notRequestedResult } from './gemini'
 import { analyzeText, redactPii } from './rules'
 import { AppSettings, aiMode, isFormal } from './settings'
 import { audit, bool, HttpError, newId, nowIso, parseJson } from './util'
@@ -74,7 +75,7 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
     ? disabledResult()
     : !inp.useAi
       ? notRequestedResult()
-      : await new Gemini(env, s.gemini_model, inp.fetcher).analyze(redacted, inp.aiMedia ?? [], s.gemini_daily_limit)
+      : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher)
 
   const now = nowIso()
   const result = {

@@ -115,9 +115,9 @@ describe('管理員', () => {
 
   it('系統設定可修改並驗證輸入', async () => {
     const h = await adminHeaders()
-    expect((await call('/api/admin/settings', { method: 'PUT', body: { gemini_model: 'gemini-9-flash', gemini_daily_limit: 50 }, headers: h })).status).toBe(200)
-    expect((await call('/api/admin/settings', { headers: h })).json).toMatchObject({ gemini_model: 'gemini-9-flash', gemini_daily_limit: 50 })
-    expect((await call('/api/admin/settings', { method: 'PUT', body: { gemini_model: 'Bad Model!' }, headers: h })).status).toBe(422)
+    expect((await call('/api/admin/settings', { method: 'PUT', body: { gemini_models: [{ id: 'gemini-9-flash', daily: 20, rpm: 5, media: true }], gemini_daily_limit: 50 }, headers: h })).status).toBe(200)
+    expect((await call('/api/admin/settings', { headers: h })).json).toMatchObject({ gemini_models: [{ id: 'gemini-9-flash' }], gemini_daily_limit: 50 })
+    expect((await call('/api/admin/settings', { method: 'PUT', body: { gemini_models: [{ id: 'Bad Model!', daily: 1, rpm: 1, media: true }] }, headers: h })).status).toBe(422)
   })
 
   it('回饋與商業問卷：意願與實際行為分開', async () => {

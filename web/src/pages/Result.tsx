@@ -5,6 +5,9 @@ import { Alert, RiskBadge, Section, Spinner } from '../components/ui'
 
 const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同一事件）' }
 
+/** gemini-3.5-flash-lite → Gemini 3.5 Flash Lite */
+const modelName = (id: string) => id.replace(/-it$/, '').split('-').map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
+
 function AiBlock({ ai }: { ai: AnalysisResult['ai'] }) {
   if (ai.status === 'ok')
     return (
@@ -14,7 +17,8 @@ function AiBlock({ ai }: { ai: AnalysisResult['ai'] }) {
         {ai.media_description && <p className="break-words text-sm text-slate-600">AI 看到／聽到的內容：{ai.media_description}</p>}
         {!!ai.risk_points?.length && (<><p className="font-medium">可疑之處</p><ul className="list-disc space-y-1 pl-5">{ai.risk_points.map((x) => <li key={x}>{x}</li>)}</ul></>)}
         {!!ai.advice?.length && (<><p className="font-medium">AI 建議</p><ul className="list-disc space-y-1 pl-5">{ai.advice.map((x) => <li key={x}>{x}</li>)}</ul></>)}
-        <p className="text-xs text-slate-500">由 Google Gemini（{ai.model}）產生，AI 可能出錯；此判斷不列入下方的規則風險指數。</p>
+        {ai.fallback_note && <p className="text-xs text-amber-800">{ai.fallback_note}</p>}
+        <p className="text-xs text-slate-500">由 Google {ai.model ? modelName(ai.model) : 'Gemini'} 產生，AI 可能出錯；此判斷不列入下方的規則風險指數。</p>
       </div>
     )
   if (ai.status === 'demo') return <Alert kind="warn">{ai.summary}</Alert>

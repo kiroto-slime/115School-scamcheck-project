@@ -309,12 +309,14 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
   const { data, reload } = useLoad<any>(call, '/api/admin/settings')
   const [f, setF] = useState<any>(null)
   const [confirmFormal, setConfirmFormal] = useState(false)
-  useEffect(() => { if (data) setF(data) }, [data])
+  useEffect(() => { if (data) setF({ ...data, models_text: modelsToText(data.gemini_models ?? []) }) }, [data])
+  const [available, setAvailable] = useState<{ id: string; name: string }[] | null>(null)
+  const listModels = async () => { const r = await call<{ models: { id: string; name: string }[] }>('/api/admin/ai/models'); if (r) setAvailable(r.models) }
   if (!f) return <Spinner label="載入設定…" />
   const save = async () => {
     if (f.research_mode === 'formal' && data.research_mode !== 'formal' && !confirmFormal) return setConfirmFormal(true)
     const body = { research_mode: f.research_mode, research_group_mode: f.research_group_mode, research_collection_enabled: f.research_collection_enabled,
-      gemini_model: String(f.gemini_model).trim(), gemini_daily_limit: Number(f.gemini_daily_limit),
+      gemini_models: parseModels(f.models_text), gemini_daily_limit: Number(f.gemini_daily_limit),
       cofacts_enabled: Boolean(f.cofacts_enabled), cofacts_daily_limit: Number(f.cofacts_daily_limit),
       google_daily_limit: Number(f.google_daily_limit), virustotal_daily_limit: Number(f.virustotal_daily_limit) }
     if (await call('/api/admin/settings', { method: 'PUT', body: JSON.stringify(body) })) { setConfirmFormal(false); onDone('設定已儲存，立即生效'); reload() }
@@ -334,9 +336,13 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
         <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={f.research_collection_enabled} onChange={(e) => set('research_collection_enabled', e.target.checked)} />蒐集研究資料（研究結束後取消勾選）</label>
       </Section>
       <Section title="AI 與外部查詢">
-        <label className="block"><span className="label">Gemini 模型名稱</span><input className="input" value={f.gemini_model} onChange={(e) => set('gemini_model', e.target.value)} /></label>
+        <label className="block"><span className="label">AI 模型順序（用完一個自動換下一個）</span>
+          <textarea className="input min-h-40 font-mono text-sm" value={f.models_text} onChange={(e) => set('models_text', e.target.value)} /></label>
+        <p className="text-xs text-slate-500">每行一個：「模型代號 每日次數 每分鐘次數」，只能分析文字的模型在最後加「文字」。次數請依 Google AI Studio 額度頁（ai.dev/rate-limit）填寫。</p>
+        <button type="button" className="btn-secondary" onClick={listModels}>列出這把金鑰可用的模型代號</button>
+        {available && <p className="max-h-40 overflow-y-auto break-words rounded-lg bg-slate-50 p-2 font-mono text-xs">{available.map((m) => m.id).join('、') || '沒有可用模型'}</p>}
         <p className="text-xs text-slate-500">Google 推出新模型時改這裡即可，例如 gemini-3.8-flash。金鑰在 Cloudflare 後台的 GEMINI_API_KEY 設定。</p>
-        <label className="block"><span className="label">Gemini 每日上限（次）</span><input className="input" type="number" min={0} value={f.gemini_daily_limit} onChange={(e) => set('gemini_daily_limit', e.target.value)} /></label>
+        <label className="block"><span className="label">AI 每日總上限（所有模型合計，次）</span><input className="input" type="number" min={0} value={f.gemini_daily_limit} onChange={(e) => set('gemini_daily_limit', e.target.value)} /></label>
         <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={f.cofacts_enabled} onChange={(e) => set('cofacts_enabled', e.target.checked)} />啟用 Cofacts 查核比對（公開 API，不需要憑證）</label>
         <label className="block"><span className="label">Cofacts 每日上限（次）</span><input className="input" type="number" min={0} value={f.cofacts_daily_limit} onChange={(e) => set('cofacts_daily_limit', e.target.value)} /></label>
         <label className="block"><span className="label">Google 每日上限（次，安全瀏覽與事實查核各自計算）</span><input className="input" type="number" min={0} value={f.google_daily_limit} onChange={(e) => set('google_daily_limit', e.target.value)} /></label>
@@ -394,5 +400,13 @@ function Tw165Updater({ call, onDone, onError }: { call: Call; onDone: (s: strin
       <button className="btn-primary" disabled={!files.length || Boolean(busy)} onClick={update}>{busy ?? '更新名單'}</button>
     </Section>
   )
+}
+
+type ModelRow = { id: string; daily: number; rpm: number; media: boolean }
+const modelsToText = (ms: ModelRow[]) => ms.map((m) => `${m.id} ${m.daily} ${m.rpm}${m.media ? '' : ' 文字'}`).join('\n')
+/** 「代號 每日 每分鐘 [文字]」→ 設定；格式錯的行略過 */
+function parseModels(text: string): ModelRow[] {
+  return String(text ?? '').split('\n').map((l) => l.trim().split(/\s+/)).filter((p) => p[0] && /^[a-z0-9][a-z0-9.\-]{2,60}$/.test(p[0]))
+    .map((p) => ({ id: p[0], daily: Math.max(0, Number(p[1]) || 0), rpm: Math.max(1, Number(p[2]) || 1), media: p[3] !== '文字' }))
 }
 
