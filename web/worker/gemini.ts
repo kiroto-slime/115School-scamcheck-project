@@ -124,7 +124,8 @@ export class Gemini {
         }
         throw new GeminiError(e instanceof DOMException && e.name === 'TimeoutError' ? 'Gemini 回應逾時，請稍後再試或改用較短的影片。' : '無法連線到 Gemini，請確認網路。')
       }
-      if ([429, 500, 502, 503, 504].includes(r.status) && attempt === 0) {
+      // 429 多半是額度用完，重試只會更浪費額度，所以不重試
+      if ([500, 502, 503, 504].includes(r.status) && attempt === 0) {
         await sleep(this.retryDelayMs)
         continue
       }
