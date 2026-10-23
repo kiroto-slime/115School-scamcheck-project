@@ -107,3 +107,27 @@ describe('每分鐘冷卻', () => {
     expect((await modelStates(env.DB, s.gemini_models))[0].minute_left).toBe(0)
   })
 })
+
+describe('速度', () => {
+  it('Gemini 模型送出 thinking_level low；Gemma 不送', async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_i: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init!.body)))
+      return ok()
+    })
+    await analyzeWithFallback(E, S([{ id: 'gemini-x', daily: 5, rpm: 5, media: true }]), '你好', [])
+    await analyzeWithFallback(E, S([{ id: 'gemma-x-it', daily: 5, rpm: 5, media: false }]), '你好', [])
+    expect(bodies[0].generation_config).toMatchObject({ thinking_level: 'low' })
+    expect(bodies[1].generation_config).not.toHaveProperty('thinking_level')
+  })
+
+  it('回應逾時：換下一個模型並註明', async () => {
+    mockModels((m) => {
+      if (m === 'slow-1') throw new DOMException('timeout', 'TimeoutError')
+      return ok()
+    })
+    const r = await analyzeWithFallback(E, S([{ id: 'slow-1', daily: 5, rpm: 5, media: true }, { id: 'b-2', daily: 5, rpm: 5, media: true }]), '你好', [])
+    expect(r).toMatchObject({ status: 'ok', model: 'b-2' })
+    expect(r.fallback_note).toContain('回應太慢')
+  })
+})

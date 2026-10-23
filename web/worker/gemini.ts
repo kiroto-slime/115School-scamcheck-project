@@ -114,7 +114,7 @@ function parseJsonLoose(text: string): Record<string, unknown> {
 
 export class Gemini {
   // 預設用箭頭函式包住 fetch：Cloudflare 直接以物件方法呼叫 fetch 會出現 Illegal invocation
-  constructor(private env: Env, private model: string, private fetcher: typeof fetch = (input, init) => fetch(input, init), private retryDelayMs = 1500) {}
+  constructor(private env: Env, private model: string, private fetcher: typeof fetch = (input, init) => fetch(input, init), private retryDelayMs = 1500, private timeoutMs = 45_000) {}
 
   private headers(extra: Record<string, string> = {}) {
     return { 'x-goog-api-key': this.env.GEMINI_API_KEY ?? '', ...extra }
@@ -126,14 +126,18 @@ export class Gemini {
       try {
         r = await this.fetcher(INTERACTIONS, {
           method: 'POST', headers: this.headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
-          signal: AbortSignal.timeout(90_000),
+          // 每個模型最多等 45 秒；太慢就由 aimodels.ts 換下一個模型
+          signal: AbortSignal.timeout(this.timeoutMs),
         })
       } catch (e) {
-        if (attempt === 0 && !(e instanceof DOMException && e.name === 'TimeoutError')) {
+        const timeout = e instanceof DOMException && e.name === 'TimeoutError'
+        if (attempt === 0 && !timeout) {
           await sleep(this.retryDelayMs)
           continue
         }
-        throw new GeminiError(e instanceof DOMException && e.name === 'TimeoutError' ? 'Gemini 回應逾時，請稍後再試或改用較短的影片。' : '無法連線到 Gemini，請確認網路。')
+        throw timeout
+          ? new GeminiError('Gemini 回應逾時，請稍後再試或改用較短的影片。', 408)
+          : new GeminiError('無法連線到 Gemini，請確認網路。')
       }
       // 429 多半是額度用完，重試只會更浪費額度，所以不重試
       if ([500, 502, 503, 504].includes(r.status) && attempt === 0) {
@@ -159,7 +163,8 @@ export class Gemini {
     const data = await this.post({
       model: this.model, system_instruction: SYSTEM_PROMPT, input,
       response_format: { type: 'text', mime_type: 'application/json', schema: SCHEMA },
-      generation_config: { max_output_tokens: 4096 }, store: false,
+      // Gemini 預設會想很久（3.8 Flash 長訊息會超過 90 秒）；判斷詐騙不需要深度推理，用 low 加快。Gemma 不支援這個設定。
+      generation_config: { max_output_tokens: 4096, ...(this.model.startsWith('gemini-') ? { thinking_level: 'low' } : {}) }, store: false,
     }) as { status?: string }
     if (data.status && data.status !== 'completed') throw new GeminiError('Gemini 沒有完成分析（可能被安全機制擋下）。')
     const parsed = parseJsonLoose(extractText(data))

@@ -156,6 +156,10 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         }
         continue
       }
+      if (e.status === 408) {
+        skipped.push(`${modelLabel(m.id)} 回應太慢`)
+        continue
+      }
       if (isNotFound(e)) {
         await bump(env.DB, day, badKey(m.id))
         skipped.push(`${modelLabel(m.id)} 無法使用`)

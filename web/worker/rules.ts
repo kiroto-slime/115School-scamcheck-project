@@ -7,7 +7,7 @@
  * 修改規則時請同步更新 RULE_VERSION 與 worker/test/rules.test.ts。
  */
 
-export const RULE_VERSION = 'rules-2026.10-v0.2'
+export const RULE_VERSION = 'rules-2026.10-v0.3'
 export type RiskLevel = '低' | '中' | '高' | '資訊不足'
 const MIN_TEXT_CHARS = 12
 
@@ -50,9 +50,10 @@ export const RULES: Rule[] = [
 ]
 
 // 與 Python 版樣式字串一致（顯示在「觸發依據」中）
+/** 符合「樣式」時顯示給使用者看的說明（不要顯示程式的比對規則） */
 const PATTERN_TEXT: Record<string, string> = {
-  urgency: '\\d+\\s*(分鐘|小時)內',
-  guaranteed_reward: '(報酬|獲利|收益)\\s*\\d+\\s*%',
+  urgency: '出現限時字眼（例如「24 小時內」）',
+  guaranteed_reward: '標榜固定報酬率（例如「獲利 20%」）',
 }
 
 const URL_RE = /(?:https?:\/\/|www\.)[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi
@@ -157,7 +158,7 @@ export function analyzeText(text: string, sourceSignals: SourceSignal[] = [], ur
   const features: Feature[] = []
   for (const r of RULES) {
     let hits = r.keywords.filter((k) => clean.includes(k))
-    if (r.patterns.some((p) => p.test(clean))) hits.push(`符合樣式：${PATTERN_TEXT[r.feature_id]}`)
+    if (r.patterns.some((p) => p.test(clean))) hits.push(PATTERN_TEXT[r.feature_id])
     if (r.feature_id === 'suspicious_link') hits = hits.concat(urlTriggers(clean))
     if (hits.length) {
       features.push({

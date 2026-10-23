@@ -40,3 +40,12 @@ describe('RiskAnalyzer（與 v0.1 Python 版結果一致）', () => {
     expect(out).toBe('電話[手機]身分證[身分證]信箱[Email]帳號[數字帳號]')
   })
 })
+
+describe('觸發依據的文字', () => {
+  it('限時樣式顯示成一般人看得懂的說明，不顯示比對規則', () => {
+    const r = analyzeText('請於24小時內完成付款，否則帳號停用')
+    const urgency = r.features.find((f) => f.feature_id === 'urgency')!
+    expect(urgency.triggers).toContain('出現限時字眼（例如「24 小時內」）')
+    expect(JSON.stringify(r)).not.toContain('\\d')
+  })
+})
