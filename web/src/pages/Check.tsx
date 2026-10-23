@@ -9,6 +9,8 @@ type Mode = 'text' | 'image' | 'video'
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const IMAGE_EXT = ['.jpg', '.jpeg', '.png', '.webp']
 const VIDEO_EXT = ['.mp4', '.mov']
+/** IG、FB、Threads 貼文連結（網站讀不到貼文內容） */
+const SOCIAL_LINK = /(?:instagram\.com|instagr\.am|facebook\.com|fb\.com|fb\.watch|m\.me|threads\.net|threads\.com)\//i
 
 export function validateFile(file: File, mode: 'image' | 'video', maxMb: number): string | null {
   const name = file.name.toLowerCase()
@@ -220,7 +222,22 @@ export default function Check() {
             <label htmlFor="text" className="label">貼上可疑訊息、廣告或對話內容</label>
             <textarea id="text" className="input min-h-40" value={text} maxLength={limits.max_text_chars}
               onChange={(e) => setText(e.target.value)} placeholder="例如：您的包裹地址有誤，請點擊連結更新…" />
-            <p className="mt-1 text-right text-xs text-slate-500">{text.length} / {limits.max_text_chars} 字</p>
+            <div className="mt-1 flex flex-wrap items-start justify-between gap-2 text-xs text-slate-500">
+              <p>IG、Facebook 貼文的內容網站讀不到，請截圖或錄影後上傳。</p>
+              <p className="ml-auto">{text.length} / {limits.max_text_chars} 字</p>
+            </div>
+            {SOCIAL_LINK.test(text) && (
+              <div className="mt-2 space-y-2">
+                <Alert kind="warn">
+                  偵測到 IG、Facebook 或 Threads 的連結：網站只能檢查這個網址本身，<strong>看不到貼文裡的圖片、影片和文字</strong>。
+                  請把貼文截圖或螢幕錄影後上傳，才能分析內容。
+                </Alert>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn-secondary" onClick={() => switchMode('image')}>改用圖片截圖</button>
+                  <button type="button" className="btn-secondary" onClick={() => switchMode('video')}>改用短影片</button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <>

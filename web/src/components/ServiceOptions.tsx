@@ -55,10 +55,27 @@ function FlowDiagram() {
   )
 }
 
+/** 「全選」：只管下面這些查詢服務（不包含研究同意 B、C，那些必須個別自願勾選） */
+function SelectAll({ options }: { options: ServiceOption[] }) {
+  const usable = options.filter((o) => !o.disabled)
+  const checkedCount = usable.filter((o) => o.checked).length
+  const all = usable.length > 0 && checkedCount === usable.length
+  return (
+    <label className="flex min-h-11 items-center gap-3 border-b border-slate-200 pb-1">
+      <input type="checkbox" className="h-5 w-5 shrink-0" disabled={!usable.length} checked={all}
+        // 部分勾選時顯示「－」
+        ref={(el) => { if (el) el.indeterminate = checkedCount > 0 && !all }}
+        onChange={() => usable.forEach((o) => o.onChange(!all))} />
+      <span className="text-sm font-medium">全選</span>
+    </label>
+  )
+}
+
 export function ServiceOptions({ options }: { options: ServiceOption[] }) {
   return (
     <div className="space-y-1">
       <p className="text-sm font-medium text-slate-700">要一起查詢的服務</p>
+      {options.length > 1 && <SelectAll options={options} />}
       <div className="flex min-h-11 items-center gap-3 text-sm text-slate-700">
         <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-600 text-white" aria-hidden="true">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3"><path d="m5 12 5 5 9-10" /></svg>

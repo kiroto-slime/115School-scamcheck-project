@@ -54,6 +54,33 @@ describe('Check page', () => {
     expect(calls).not.toContain('/api/consent') // 未勾選 B 不建立研究紀錄
   })
 
+  it('貼上 IG／FB 連結時提醒改用截圖或錄影，並可一鍵切換', async () => {
+    mockFetch(() => ({}))
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    expect(screen.queryByText(/偵測到 IG、Facebook/)).toBeNull()
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '快看 https://www.instagram.com/p/abc123/')
+    expect(screen.getByText(/偵測到 IG、Facebook/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '改用圖片截圖' }))
+    expect(screen.queryByLabelText(/貼上可疑訊息/)).toBeNull()
+  })
+
+  it('全選：一次勾選或取消所有查詢服務，不會勾到研究同意 B、C', async () => {
+    const body = { ...health, modes: { ...health.modes, google: 'live', virustotal: 'live' } }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    refreshHealth()
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    const all = await screen.findByRole('checkbox', { name: '全選' })
+    const vt = screen.getByRole('checkbox', { name: /VirusTotal/ })
+    expect(vt).not.toBeChecked() // 預設 VirusTotal 沒勾，所以全選是「部分勾選」
+    await userEvent.click(all)
+    expect(vt).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Cofacts/ })).toBeChecked()
+    expect(screen.getByLabelText(/B.（自願）/)).not.toBeChecked()
+    await userEvent.click(all)
+    expect(vt).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Cofacts/ })).not.toBeChecked()
+  })
+
   it('consent C is disabled until B is checked', async () => {
     mockFetch(() => ({}))
     render(<MemoryRouter><Check /></MemoryRouter>)
