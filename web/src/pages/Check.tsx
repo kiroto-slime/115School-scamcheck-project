@@ -34,9 +34,13 @@ export default function Check() {
   const [useAi, setUseAi] = useState(true)
   const aiAvailable = health?.modes.ai === 'gemini'
   const cofactsAvailable = health?.modes.cofacts === 'live'
-  const aiModels = health?.modes.ai_models ?? []
-  const aiNow = currentAiModel(aiModels, mode !== 'text')
-  const aiLeft = aiModels.filter((m) => mode === 'text' || m.media).reduce((n, m) => n + m.remaining, 0)
+  // 圖片、影片模式只列出能分析媒體的模型
+  const aiModels = (health?.modes.ai_models ?? []).filter((m) => mode === 'text' || m.media)
+  const aiNow = currentAiModel(aiModels)
+  const aiLeft = aiModels.reduce((n, m) => n + m.remaining, 0)
+  const [aiChoice, setAiChoice] = useState('')
+  // 切到圖片／影片時，原本選的模型如果不能看媒體就改回自動
+  const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0) ? aiChoice : ''
   const googleAvailable = health?.modes.google === 'live'
   const vtAvailable = health?.modes.virustotal === 'live'
   const [queryGoogle, setQueryGoogle] = useState(true)
@@ -112,10 +116,10 @@ export default function Check() {
       const sourceFlags = { query_cofacts: cofactsAvailable && queryCofacts, query_google: googleAvailable && queryGoogle, query_virustotal: vtAvailable && queryVt }
       if (mode === 'text') {
         setBusy(aiAvailable && useAi ? '分析中（含 Gemini AI，約需 5–30 秒）…' : '分析文字與查詢來源中…')
-        result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiAvailable && useAi, ...(rid ? { research_id: rid } : {}) })
+        result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiAvailable && useAi, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) })
       } else {
         const ai = aiAvailable && useAi
-        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(rid ? { research_id: rid } : {}) }
+        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
         if (mode === 'image') {
           setBusy('處理圖片中…')
           const img = await prepareImage(file!)
@@ -200,12 +204,18 @@ export default function Check() {
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts },
           aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi,
-            chip: aiNow
-              ? <span className="rounded-md bg-teal-50 px-1.5 py-0.5 text-xs text-teal-800">目前：{aiNow.label}・今日剩 {aiNow.remaining} 次</span>
-              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日 AI 額度已用完</span>,
+            chip: aiNow ? (
+              <select aria-label="選擇 AI 模型" className="input min-h-9 w-auto max-w-full py-1 text-xs" value={aiModel}
+                onClick={(e) => e.stopPropagation()} onChange={(e) => setAiChoice(e.target.value)}>
+                <option value="">自動（目前 {aiNow.label}，剩 {aiNow.remaining} 次）</option>
+                {aiModels.map((m) => (
+                  <option key={m.id} value={m.id} disabled={m.remaining <= 0}>{m.label}（{m.remaining > 0 ? `剩 ${m.remaining} 次` : '今日已用完'}）</option>
+                ))}
+              </select>
+            ) : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日 AI 額度已用完</span>,
             detail: (
               <p className="text-xs text-slate-600">
-                免費額度用完會自動換下一個模型（共剩 {aiLeft} 次）：{aiModels.filter((m) => mode === 'text' || m.media).map((m) => `${m.label} 剩 ${m.remaining}`).join(' → ')}
+                選「自動」時，免費額度用完會自動換下一個模型（共剩 {aiLeft} 次）；自己選的模型用完也會自動往下換：{aiModels.map((m) => `${m.label} 剩 ${m.remaining}`).join(' → ')}
               </p>
             ) },
           googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle },

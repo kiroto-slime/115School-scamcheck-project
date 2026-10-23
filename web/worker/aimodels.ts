@@ -92,8 +92,11 @@ const isDailyQuota = (raw: string) => /PerDay|per day|daily/i.test(raw)
 const isNotFound = (e: GeminiError) => e.status === 404 || (e.status === 400 && /not found|not supported|unsupported model|is not available/i.test(e.raw))
 
 /** 依序嘗試模型；回傳結果並註明是否因額度改用其他模型 */
-export async function analyzeWithFallback(env: Env, s: AppSettings, text: string, media: AIMedia[], fetcher?: typeof fetch): Promise<AIResult> {
-  const models = s.gemini_models.length ? s.gemini_models : DEFAULT_MODELS
+export async function analyzeWithFallback(env: Env, s: AppSettings, text: string, media: AIMedia[], fetcher?: typeof fetch, preferred?: string): Promise<AIResult> {
+  const all = s.gemini_models.length ? s.gemini_models : DEFAULT_MODELS
+  // 使用者指定的模型排第一個；它不能用時照原本順序往下換
+  const chosen = preferred ? all.find((m) => m.id === preferred) : undefined
+  const models = chosen ? [chosen, ...all.filter((m) => m !== chosen)] : all
   const needMedia = media.length > 0
   const sent = [...new Set(media.map((m) => m.kind))].sort()
   const fail = (status: AIResult['status'], summary: string, model: string | null = null): AIResult => ({

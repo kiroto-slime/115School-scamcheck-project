@@ -25,6 +25,8 @@ export interface AnalyzeInput {
   /** Google 安全瀏覽＋事實查核 */
   queryGoogle?: boolean
   queryVirusTotal?: boolean
+  /** 使用者指定的模型；沒指定就依設定順序自動選 */
+  aiModel?: string
   useAi: boolean
   aiMedia?: AIMedia[]
   mediaInfo?: Record<string, unknown>
@@ -75,7 +77,7 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
     ? disabledResult()
     : !inp.useAi
       ? notRequestedResult()
-      : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher)
+      : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel)
 
   const now = nowIso()
   const result = {

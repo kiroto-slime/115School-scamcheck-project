@@ -63,6 +63,15 @@ describe('模型輪替', () => {
     expect((await modelStates(env.DB, s.gemini_models))[0].unavailable).toBe(true)
   })
 
+  it('使用者指定模型：先用它；它用完就照順序往下換', async () => {
+    const used = mockModels(() => ok())
+    const s = S([{ id: 'a-1', daily: 5, rpm: 5, media: true }, { id: 'b-2', daily: 1, rpm: 5, media: true }])
+    expect((await analyzeWithFallback(E, s, '你好', [], undefined, 'b-2')).model).toBe('b-2')
+    expect((await analyzeWithFallback(E, s, '你好', [], undefined, 'b-2')).model).toBe('a-1')
+    expect((await analyzeWithFallback(E, s, '你好', [], undefined, 'not-in-list')).model).toBe('a-1')
+    expect(used).toEqual(['b-2', 'a-1', 'a-1'])
+  })
+
   it('全部用完：顯示額度用完，不送出', async () => {
     const used = mockModels(() => ok())
     const s = S([{ id: 'a-1', daily: 0, rpm: 5, media: true }])
