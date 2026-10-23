@@ -4,7 +4,7 @@ import { factCheckLookup, FactCheckResult } from './factcheck'
 import { analyzeWithFallback } from './aimodels'
 import { AIMedia, disabledResult, notRequestedResult } from './gemini'
 import { analyzeText, redactPii } from './rules'
-import { AppSettings, aiMode, isFormal } from './settings'
+import { AppSettings, aiMode } from './settings'
 import { audit, bool, HttpError, newId, nowIso, parseJson } from './util'
 import { ExternalUrlResult, extractUrls, safeBrowsingLookup, tw165Lookup, virusTotalLookup, vtMaliciousCount } from './urlcheck'
 
@@ -81,6 +81,7 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
 
   const now = nowIso()
   const result = {
+    record_origin: 'user_submission',
     media: inp.mediaInfo ?? {},
     cofacts: { status: lookup.status, mode: lookup.mode, message: lookup.message, license: LICENSE, matches: lookup.matches },
     fact_check: factCheck,
@@ -100,7 +101,8 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
       analysisId, consentResearch ? inp.researchId : null, now, inp.mediaType, lookup.matches.length, risk.risk_score, risk.risk_level,
       JSON.stringify(risk.tags), status, risk.rule_version, bool(ai.external && ai.status === 'ok'), bool(consentResearch), bool(consentSecondary),
-      bool(!isFormal(s)), JSON.stringify(result),
+      // 一般查核獨立於前後測研究模式；只代表使用者送出的查核，不代表內容已證實。
+      0, JSON.stringify(result),
       // 未同意研究者：只暫存供當次查看，到期自動刪除
       consentResearch ? null : nowIso(s.temp_retention_hours * 3600_000),
     ),

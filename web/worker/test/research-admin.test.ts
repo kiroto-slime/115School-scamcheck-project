@@ -64,6 +64,23 @@ describe('研究流程', () => {
 })
 
 describe('管理員', () => {
+  it('遊戲題庫獨立管理，只有發布題目可抽取，作答不寫入研究資料', async () => {
+    expect((await call('/api/game/question')).status).toBe(404)
+    const body = { question: '教學練習：陌生人要求提供驗證碼，應該怎麼做？', options: ['提供驗證碼', '停止提供並查證'], correct_index: 1, explanation: '驗證碼不能交給他人。', published: false }
+    expect((await call('/api/admin/game-questions', { body })).status).toBe(401)
+    const h = await adminHeaders()
+    expect((await call('/api/admin/game-questions', { body: { ...body, correct_index: 3 }, headers: h })).status).toBe(422)
+    const created = await call('/api/admin/game-questions', { body, headers: h })
+    expect(created.status).toBe(201)
+    expect((await call('/api/game/question')).status).toBe(404)
+    const id = created.json.id
+    expect((await call(`/api/admin/game-questions/${id}`, { method: 'PUT', body: { ...body, published: true }, headers: h })).status).toBe(200)
+    const question = (await call('/api/game/question')).json
+    expect(question).toMatchObject({ id, question: body.question, options: body.options, correct_index: 1, explanation: body.explanation })
+    expect(await count('research_responses')).toBe(0)
+    expect(await count('research_participants')).toBe(0)
+    expect((await call('/api/admin/game-questions', { headers: h })).json).toHaveLength(1)
+  })
   it('未登入不能匯出或看統計；密碼錯誤被拒', async () => {
     expect((await call('/api/admin/export-data')).status).toBe(401)
     expect((await call('/api/admin/statistics', { headers: { Authorization: 'Bearer forged.token' } })).status).toBe(401)
@@ -81,9 +98,9 @@ describe('管理員', () => {
     expect(st.judgement.accuracy).toBeNull()
     expect(st.risk_tag_counts).toEqual({})
     const ex = (await call('/api/admin/export-data', { headers: h })).json
-    expect(ex.sheets.map((s: { name: string }) => s.name)).toEqual(['Analysis_Records', 'Source_Results', 'Research_Responses', 'Pattern_Dataset', 'Consent_Records', 'Product_Survey', 'Summary'])
-    expect(ex.sheets[2].rows).toEqual([])
-    const summary = Object.fromEntries(ex.sheets[6].rows)
+    expect(ex.sheets.map((s: { name: string }) => s.name)).toEqual(['查核摘要', '統計總覽', '分析紀錄', '查核來源', '研究作答', '風險模式資料集', '同意紀錄', '產品需求問卷', '匯出說明'])
+    expect(ex.sheets.find((s: { name: string }) => s.name === '研究作答').rows).toEqual([])
+    const summary = Object.fromEntries(ex.sheets.find((s: { name: string }) => s.name === '統計總覽').rows)
     expect(summary['有效樣本數（完成前後測）']).toBe(0)
     expect(summary['判斷正確率']).toBe('無資料')
   })
@@ -92,9 +109,97 @@ describe('管理員', () => {
     await fullFlow()
     const h = await adminHeaders()
     const ex = (await call('/api/admin/export-data?dataset=demo', { headers: h })).json
-    expect(ex.sheets[2].rows).toHaveLength(3)
-    expect(ex.sheets[2].rows[0][0]).toBe('DEMO')
-    expect(Object.fromEntries(ex.sheets[6].rows)['有效樣本數（完成前後測）']).toBe(1)
+    const responses = ex.sheets.find((s: { name: string }) => s.name === '研究作答')
+    expect(responses.rows).toHaveLength(3)
+    expect(responses.rows[0][0]).toBe('模擬研究（DEMO）')
+    expect(responses.rows[0][5]).toBe('前測（無輔助）')
+    expect(responses.rows[0][6]).toBe('可能是詐騙')
+    expect(Object.fromEntries(ex.sheets.find((s: { name: string }) => s.name === '統計總覽').rows)['有效樣本數（完成前後測）']).toBe(1)
+  })
+
+  it('匯出既有摘要、分開規則與 AI 判斷、原因及建議；再次遮蔽且不匯出未同意者', async () => {
+    const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
+    const a = (await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })).json
+    const saved = { ...a, cofacts: { status: 'found', matches: [{ reply_type: 'RUMOR', match_type: 'similar' }] }, ai: { status: 'ok', summary: '冒充客服索取驗證碼，聯絡 0912-345-678 或 a@example.com，前往 https://private.example/token。', risk_level: '低', risk_points: ['索取帳密'], advice: ['改用官方電話確認'] } }
+    await env.DB.prepare('UPDATE analysis_records SET result_json = ? WHERE analysis_id = ?').bind(JSON.stringify(saved), a.analysis_id).run()
+    const other = (await call('/api/analyze/text', { body: { text: SCAM } })).json
+    const h = await adminHeaders()
+    const ex = (await call('/api/admin/export-data?dataset=formal', { headers: h })).json
+    const sheet = ex.sheets.find((s: { name: string }) => s.name === '查核摘要')
+    const row = Object.fromEntries(sheet.headers.map((k: string, i: number) => [k, sheet.rows[0][i]]))
+    expect(sheet.rows).toHaveLength(1)
+    expect(row['發生什麼']).toContain('冒充客服索取驗證碼')
+    expect(row['多嚴重']).toContain('規則：高')
+    expect(row['多嚴重']).toContain('很可能是詐騙，請不要照訊息的指示做')
+    expect(row['多嚴重']).toContain('AI：低')
+    expect(row['有哪些問題']).toContain('要求付款或匯款')
+    expect(row['有哪些問題']).toContain('Cofacts 有相同或相似的訊息被查核為不實')
+    expect(row['有哪些問題']).toContain('AI：索取帳密')
+    expect(row['建議怎麼處理']).toContain('不要依對方指示匯款')
+    expect(row['建議怎麼處理']).toContain('AI：改用官方電話確認')
+    expect(row['各來源查核結果']).toContain('找到相關資料')
+    expect(row['教材使用提醒']).toContain('未同意衍生使用')
+    expect(JSON.stringify(ex)).not.toMatch(/0912-345-678|a@example.com|private\.example/)
+    expect(JSON.stringify(ex)).not.toContain(other.analysis_id)
+  })
+
+  it('沒有摘要或歷史結果欄位損壞時不編故事，保留舊分類且未知代碼可追溯', async () => {
+    const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
+    const a = (await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })).json
+    await env.DB.prepare("UPDATE analysis_records SET is_demo = 1, result_json = ?, risk_tags_json = ? WHERE analysis_id = ?").bind('{"ai":{"status":"error","summary":"錯誤資訊不能當事件"},"features":"壞資料","basis":{},"safe_actions":null}', '["future_tag"]', a.analysis_id).run()
+    const h = await adminHeaders()
+    const ex = (await call('/api/admin/export-data?dataset=demo', { headers: h })).json
+    const sheet = ex.sheets.find((s: { name: string }) => s.name === '查核摘要')
+    expect(sheet.rows[0][0]).toContain('未保存事件敘述')
+    expect(sheet.rows[0][0]).not.toContain('錯誤資訊不能當事件')
+    expect(JSON.stringify(sheet.rows[0])).toContain('來源待確認')
+    expect(JSON.stringify(ex)).toContain('未定義代碼：future_tag')
+    expect(await env.DB.prepare('SELECT is_demo FROM analysis_records WHERE analysis_id = ?').bind(a.analysis_id).first()).toMatchObject({ is_demo: 1 })
+    await env.DB.prepare("UPDATE analysis_records SET result_json = 'null', risk_tags_json = 'null' WHERE analysis_id = ?").bind(a.analysis_id).run()
+    expect((await call('/api/admin/export-data?dataset=demo', { headers: h })).status).toBe(200)
+  })
+
+  it('一般使用者查核與回饋獨立分類，前後測維持 DEMO，同意仍可對照', async () => {
+    const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
+    const a = (await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })).json
+    const row = await env.DB.prepare('SELECT is_demo, result_json FROM analysis_records WHERE analysis_id = ?').bind(a.analysis_id).first<{ is_demo: number; result_json: string }>()
+    expect(row!.is_demo).toBe(0)
+    expect(JSON.parse(row!.result_json).record_origin).toBe('user_submission')
+    const study = (await call('/api/research/start', { body: { consent_research: true } })).json
+    expect(study.is_demo).toBe(true)
+    await call('/api/feedback', { body: { analysis_id: a.analysis_id, research_id: rid, helpful: true } })
+    expect(await env.DB.prepare('SELECT is_demo FROM feedback_records WHERE analysis_id = ?').bind(a.analysis_id).first()).toMatchObject({ is_demo: 0 })
+    const h = await adminHeaders()
+    const ex = (await call('/api/admin/export-data?dataset=formal', { headers: h })).json
+    expect(ex.sheets.find((s: { name: string }) => s.name === '同意紀錄').rows.some((r: unknown[]) => r[2] === rid)).toBe(true)
+    expect(ex.sheets.find((s: { name: string }) => s.name === '研究作答').rows).toEqual([])
+    expect((await call('/api/admin/statistics?dataset=formal', { headers: h })).json.analysis_records).toBe(1)
+    expect((await call('/api/health')).json.modes.research_mode).toBe('simulation')
+  })
+
+  it('清除 DEMO 遇到來源未確認的舊查核先拒絕，合成與使用者資料均不誤刪', async () => {
+    const a = (await call('/api/analyze/text', { body: { text: SCAM } })).json
+    await env.DB.prepare("UPDATE analysis_records SET is_demo = 1, result_json = '{}' WHERE analysis_id = ?").bind(a.analysis_id).run()
+    const h = await adminHeaders()
+    await call('/api/admin/demo/seed', { method: 'POST', headers: h })
+    const before = await count('analysis_records')
+    const cleared = await call('/api/admin/demo/clear', { method: 'POST', headers: h })
+    expect(cleared.status).toBe(409)
+    expect(cleared.json.detail).toContain('來源待確認')
+    expect(await count('analysis_records')).toBe(before)
+    // JSON 數字 1 不能冒充 seedDemo 寫入的布林 true。
+    await env.DB.prepare('UPDATE analysis_records SET result_json = ? WHERE analysis_id = ?').bind('{"demo":1}', a.analysis_id).run()
+    expect((await call('/api/admin/demo/clear', { method: 'POST', headers: h })).status).toBe(409)
+    expect(await count('analysis_records')).toBe(before)
+  })
+
+  it('清除 DEMO 不可刪掉新使用者查核所連結的原 DEMO 同意', async () => {
+    const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
+    await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })
+    const h = await adminHeaders()
+    await call('/api/admin/demo/seed', { method: 'POST', headers: h })
+    expect((await call('/api/admin/demo/clear', { method: 'POST', headers: h })).status).toBe(409)
+    expect(await count('consent_records', `research_id = '${rid}' AND consent_status = 'granted'`)).toBe(1)
   })
 
   it('DEMO 與正式資料隔離；清除測試資料只刪 DEMO', async () => {

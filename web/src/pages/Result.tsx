@@ -3,6 +3,8 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { api, ApiError, formatTime, postJson, researchId, type AnalysisResult } from '../api'
 import { Alert, RiskBadge, Section, Spinner } from '../components/ui'
 import { addHistory } from '../history'
+import { mainReasons, riskConclusion } from '../../shared/conclusion'
+export { mainReasons } from '../../shared/conclusion'
 
 const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同一事件）' }
 
@@ -10,23 +12,10 @@ const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同�
 const modelName = (id: string) => id.replace(/-it$/, '').replace(/-preview$/, '').replace(/-a\d+b$/, '').split('-').map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
 
 const HEADLINE: Record<string, [string, string]> = {
-  高: ['很可能是詐騙，請不要照訊息的指示做', 'border-red-300 bg-red-50'],
-  中: ['有可疑之處，請先查證再行動', 'border-amber-300 bg-amber-50'],
-  低: ['目前沒有明顯的詐騙特徵，但仍要小心', 'border-emerald-300 bg-emerald-50'],
-  資訊不足: ['資訊不足，無法判斷；不代表安全', 'border-slate-300 bg-slate-50'],
-}
-
-/** 結論卡用的主要理由：外部來源的明確結果優先，再來是規則特徵（白話、最多 5 點） */
-export function mainReasons(d: AnalysisResult): string[] {
-  const out: string[] = []
-  const u = d.url_checks
-  if (u?.tw165.status === 'listed') out.push('網址在警政署 165 涉詐網站名單上')
-  if (u?.safe_browsing.status === 'found') out.push('Google 判定網址疑似詐騙或釣魚網站')
-  if (u?.virustotal.status === 'found') out.push('多個資安引擎判定網址有惡意')
-  if (d.cofacts.matches.some((m) => m.reply_type === 'RUMOR')) out.push('Cofacts 有相同或相似的訊息被查核為不實')
-  if (d.fact_check?.status === 'found') out.push('找到相關的事實查核報告')
-  for (const f of d.features) out.push(`${f.label}（${f.triggers.slice(0, 2).join('、')}）`)
-  return out.slice(0, 5)
+  高: [riskConclusion('高'), 'border-red-300 bg-red-50'],
+  中: [riskConclusion('中'), 'border-amber-300 bg-amber-50'],
+  低: [riskConclusion('低'), 'border-emerald-300 bg-emerald-50'],
+  資訊不足: [riskConclusion('資訊不足'), 'border-slate-300 bg-slate-50'],
 }
 
 function ConclusionCard({ data }: { data: AnalysisResult }) {

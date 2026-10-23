@@ -11,6 +11,7 @@ import Privacy from './pages/Privacy'
 import Products from './pages/Products'
 import Admin from './pages/Admin'
 import History from './pages/History'
+import Game from './pages/Game'
 import { useTheme } from './prefs'
 
 const SOURCE_URL = 'https://github.com/kiroto-slime/115School-scamcheck-project'
@@ -39,10 +40,58 @@ function ThemeButton() {
 
 export default function App() {
   const [open, setOpen] = useState(false)
+  const [pinnedChoice, setPinnedChoice] = useState<boolean | null>(null)
+  const [landscape, setLandscape] = useState(() => window.matchMedia('(orientation: landscape) and (max-width: 1180px) and (max-height: 600px)').matches)
+  const [peek, setPeek] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>()
+  const edgeHandle = useRef<HTMLButtonElement>(null)
+  const sidebar = useRef<HTMLElement>(null)
+  const returnFocus = useRef(false)
+  const keyboardOpen = useRef(false)
+  const [focusRequest, setFocusRequest] = useState(0)
   const header = useRef<HTMLElement>(null)
   const loc = useLocation()
+  const pinned = pinnedChoice ?? !(landscape && loc.pathname === '/game')
+  const cancelClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+  }
+  const reveal = () => { cancelClose(); setPeek(true) }
+  const closePeek = (restoreFocus = false) => {
+    cancelClose()
+    returnFocus.current = restoreFocus || !!sidebar.current?.contains(document.activeElement)
+    setPeek(false)
+  }
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimer.current = setTimeout(() => closePeek(), 250)
+  }
+  useEffect(() => {
+    const query = window.matchMedia('(orientation: landscape) and (max-width: 1180px) and (max-height: 600px)')
+    const update = () => { setLandscape(query.matches); setPeek(false) }
+    query.addEventListener('change', update)
+    return () => { query.removeEventListener('change', update); cancelClose() }
+  }, [])
+  useEffect(() => {
+    if (!peek) {
+      if (returnFocus.current) { edgeHandle.current?.focus(); returnFocus.current = false }
+      return
+    }
+    const focusFrame = keyboardOpen.current
+      ? requestAnimationFrame(() => sidebar.current?.querySelector<HTMLAnchorElement>('a')?.focus())
+      : undefined
+    keyboardOpen.current = false
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closePeek(true)
+    }
+    window.addEventListener('keydown', escape)
+    return () => {
+      window.removeEventListener('keydown', escape)
+      if (focusFrame !== undefined) cancelAnimationFrame(focusFrame)
+    }
+  }, [peek, focusRequest])
   useEffect(() => {
     setOpen(false)
+    closePeek()
     window.scrollTo(0, 0)
   }, [loc.pathname])
 
@@ -56,13 +105,21 @@ export default function App() {
   }, [])
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${pinned ? 'nav-pinned' : 'nav-auto'} ${peek ? 'nav-peek' : ''}`}>
       <header ref={header} className="topbar">
         <div className="topbar-content">
-          <Link to="/" className="brand">
+          <div className="brand-controls">
+            <Link to="/" className="brand">
             <span className="brand-symbol"><img src="/favicon.svg" alt="" /></span>
             識詐數據庫
-          </Link>
+            </Link>
+            <button className="header-button sidebar-toggle" aria-controls="sidebar-panel" aria-pressed={!pinned}
+            aria-label={pinned ? '將導覽列設為自動隱藏' : '將導覽列設為常駐'}
+            title={pinned ? '自動隱藏導覽列' : '常駐導覽列'}
+            onClick={() => { setPinnedChoice(!pinned); setOpen(false); closePeek() }}>
+            <Icon d={pinned ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} />
+            </button>
+          </div>
           <div className="flex items-center gap-1">
             <ThemeButton />
             <button
@@ -77,16 +134,34 @@ export default function App() {
           </div>
         </div>
         {/* 手機：漢堡選單展開 */}
-        <Navigation mobile open={open} />
+        <Navigation mobile open={pinned && open} />
       </header>
 
       <div className="flex flex-1">
         {/* 電腦：左側導覽列 */}
-        <aside className="sidebar">
+        {!pinned && <>
+          {peek && <button className="sidebar-backdrop" aria-label="關閉左側導覽列" tabIndex={-1}
+            onClick={() => closePeek(true)} />}
+          <div className="sidebar-edge" aria-hidden="true"
+            onPointerEnter={(event) => { if (event.pointerType === 'mouse') reveal() }}
+            onPointerLeave={(event) => { if (event.pointerType === 'mouse') scheduleClose() }} />
+          <button ref={edgeHandle} className="sidebar-handle" aria-controls="sidebar-panel" aria-expanded={peek}
+            aria-label="展開左側導覽列" onClick={(event) => {
+              keyboardOpen.current = event.detail === 0
+              if (keyboardOpen.current) setFocusRequest((value) => value + 1)
+              reveal()
+            }}>
+            <Icon d="M9 5l7 7-7 7" />
+          </button>
+        </>}
+        <aside ref={sidebar} id="sidebar-panel" className="sidebar" aria-hidden={!pinned && !peek}
+          onPointerEnter={cancelClose}
+          onPointerLeave={(event) => { if (!pinned && event.pointerType === 'mouse') scheduleClose() }}
+          onBlur={(event) => { if (!pinned && !event.currentTarget.contains(event.relatedTarget as Node | null)) closePeek() }}>
           <Navigation />
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="content-column flex min-w-0 flex-1 flex-col">
           <main className="main-content space-y-5">
             <ModeBanner />
             <Routes>
@@ -97,6 +172,7 @@ export default function App() {
               <Route path="/research" element={<Research />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/products" element={<Products />} />
+              <Route path="/game" element={<Game />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="*" element={<div className="card">找不到頁面。<Link to="/">回首頁</Link></div>} />
             </Routes>

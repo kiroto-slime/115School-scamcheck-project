@@ -75,7 +75,7 @@ export function ModeBanner() {
       : cur
         ? [`AI 模型：${cur.label}（今日剩 ${cur.remaining} 次，用完自動換下一個）`, true]
         : ['AI：今日免費額度已用完', false],
-    [m.research_mode === 'formal' ? '研究：正式' : '研究：模擬（DEMO）', m.research_mode === 'formal'],
+    [m.research_mode === 'formal' ? '前後測研究：正式' : '前後測研究：模擬（DEMO）', m.research_mode === 'formal'],
   ]
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="系統狀態">

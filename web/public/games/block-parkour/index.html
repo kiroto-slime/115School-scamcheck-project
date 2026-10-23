@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小方塊跑酷</title>
+  <meta name="color-scheme" content="light dark">
+  <script>
+    // 離線或儲存空間不可用時，仍可正常切換主題。
+    try {
+      const saved = localStorage.getItem('block-parkour-theme');
+      document.documentElement.dataset.theme = saved === 'dark' || saved === 'light'
+        ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    } catch (_) { document.documentElement.dataset.theme = 'light'; }
+    try { document.documentElement.dataset.largeText = 'false'; }
+    catch (_) { document.documentElement.dataset.largeText = 'false'; }
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/ex.css">
+</head>
+<body class="ex-page">
+  <!-- 原本的開場畫面（會被感染） -->
+  <div id="ex-origin">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">📦</span><span id="ex-brand">小方塊跑酷</span></div>
+    </header>
+    <main>
+      <section class="screen active" id="screen-intro">
+        <div class="panel intro-panel">
+          <div class="intro-top"><span class="eyebrow" id="ex-eyebrow">小方塊跑酷</span><span class="offline-badge" id="ex-badge">● 分數留在本機</span></div>
+          <div class="packet-helper" aria-hidden="true"><span id="ex-face">• ᴗ •</span></div>
+          <p class="terminal-line" id="ex-terminal">[ 23:47 ] 廣播風暴警報 · 機房等待救援</p>
+          <h1 id="ex-title" data-text="機房被鎖住了！">機房被鎖住了！</h1>
+          <p class="intro-subtitle" id="ex-subtitle">帶上小封包，完成今晚的逃脫任務。</p>
+          <div id="ex-story">
+            <p>機房出現<strong>廣播風暴</strong>，帶上小方塊，準備進入跑酷挑戰。</p>
+          </div>
+          <label class="name-field">挑戰者暱稱
+            <input id="ex-name" maxlength="10" placeholder="輸入你的暱稱" autocomplete="off" disabled>
+          </label>
+          <button class="btn primary big" id="ex-start" disabled>開始逃脫 ▶</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 紅色感染布幕 -->
+  <div id="ex-curtain" aria-hidden="true"></div>
+
+  <!-- 跑酷遊戲 -->
+  <section id="ex-game" class="ex-layer" hidden>
+    <div id="game-stage">
+      <canvas id="ex-canvas" width="960" height="540" aria-label="小方塊跑酷遊戲畫面"></canvas>
+      <div class="touch-controls" aria-label="遊戲控制">
+        <div class="move-controls">
+          <button type="button" class="control-btn" data-control="left" aria-label="向左移動">←</button>
+          <button type="button" class="control-btn" data-control="right" aria-label="向右移動">→</button>
+        </div>
+        <button type="button" class="control-btn jump-btn" data-control="jump" aria-label="跳躍">跳躍</button>
+        <button type="button" class="control-btn pause-btn" id="pause-btn">暫停</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 離開視窗或主動暫停後，確認繼續再恢復 -->
+  <div id="ex-pause" class="ex-modal" hidden>
+    <div class="ex-card">
+      <h2>遊戲已暫停</h2>
+      <button type="button" class="ex-btn" id="resume-btn">繼續遊戲</button>
+    </div>
+  </div>
+
+  <!-- 結算 -->
+  <div id="ex-quiz" class="ex-modal" role="dialog" aria-modal="true" aria-labelledby="quiz-title" hidden>
+    <div class="ex-card quiz-card">
+      <h2 id="quiz-title">防詐小練習</h2>
+      <p id="quiz-question" class="quiz-copy"></p>
+      <div id="quiz-options" class="quiz-options"></div>
+      <p id="quiz-feedback" class="quiz-copy" role="status"></p>
+      <p class="ex-small">作答只存在這個裝置，不上傳、不列入正式研究；不影響跑酷分數或生命。</p>
+      <div class="r-btns">
+        <button type="button" class="ex-btn ghost" id="quiz-retry" hidden>重新載入題目</button>
+        <button type="button" class="ex-btn" id="quiz-continue" hidden>繼續遊戲</button>
+        <button type="button" class="ex-btn ghost" id="quiz-skip" hidden>略過並繼續</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 結算 -->
+  <section id="ex-result" class="ex-layer" hidden>
+    <div class="ex-card result-card">
+      <h1 id="r-title" class="r-title">GAME OVER</h1>
+      <p id="r-reason" class="ex-small"></p>
+      <div class="r-stats">
+        <div><span>暱稱</span><b id="r-name">-</b></div>
+        <div><span>分數</span><b id="r-score">0</b></div>
+        <div><span>等級</span><b id="r-level">1</b></div>
+        <div><span>🍎</span><b id="r-fruit">0</b></div>
+      </div>
+      <p id="r-rank" class="r-rank"></p>
+      <div id="r-board" class="board-wrap"></div>
+      <div class="r-btns">
+        <button class="ex-btn ghost" id="r-new">換新使用者</button>
+        <button class="ex-btn" id="r-retry">再試一次</button>
+      </div>
+    </div>
+  </section>
+
+  <button class="rank-btn" id="rank-btn" title="本機排行榜" aria-label="本機排行榜">🏆</button>
+  <button type="button" class="control-btn sound-toggle" id="sound-btn" title="關閉音效" aria-label="關閉音效" aria-pressed="true">🔊</button>
+
+  <!-- EX 排行榜 -->
+  <div id="ex-board-modal" class="ex-modal" hidden>
+    <div class="ex-card">
+      <div class="ex-tag">本機排行榜・前 10 名</div>
+      <div id="m-board" class="board-wrap"></div>
+      <div class="r-btns">
+        <button class="ex-btn ghost" id="board-clear">清除排行榜</button>
+        <button class="ex-btn" id="board-close">關閉</button>
+      </div>
+    </div>
+  </div>
+  <div class="ex-toast" id="ex-toast"></div>
+
+  <script src="js/ex.js"></script>
+</body>
+</html>

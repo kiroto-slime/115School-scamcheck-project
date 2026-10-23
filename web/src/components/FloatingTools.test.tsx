@@ -12,7 +12,10 @@ beforeEach(() => {
   position = 0
   reducedMotion = false
   localStorage.clear()
-  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduced-motion') && reducedMotion }))
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('reduced-motion') && reducedMotion,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }))
   Object.defineProperty(window, 'scrollY', { configurable: true, get: () => position })
   vi.stubGlobal('scrollTo', scroll.mockReset())
   // 系統狀態屬外部 API，本測試只驗證實際殼層與捲動互動。

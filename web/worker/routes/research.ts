@@ -160,12 +160,13 @@ research.post('/feedback', async (c) => {
     reason_code: z.enum(['clear', 'unclear', 'too_long', 'wrong_result', 'useful_tips', 'other']).nullish(),
   }))
   if (!b.analysis_id && !b.research_id) throw new HttpError(400, '需要分析編號或研究編號。')
-  if (b.analysis_id && !(await db.prepare('SELECT 1 FROM analysis_records WHERE analysis_id = ?').bind(b.analysis_id).first())) throw new HttpError(404, '找不到分析紀錄。')
+  const analysis = b.analysis_id ? await db.prepare('SELECT is_demo FROM analysis_records WHERE analysis_id = ?').bind(b.analysis_id).first<{ is_demo: number }>() : null
+  if (b.analysis_id && !analysis) throw new HttpError(404, '找不到分析紀錄。')
   // 研究編號可能來自研究測驗（research_participants），也可能只是查核頁勾了「B. 同意研究」（consent_records）
   if (b.research_id && !(await db.prepare('SELECT 1 FROM research_participants WHERE research_id = ?').bind(b.research_id).first()) && !(await hasActiveConsent(db, b.research_id, 'research')))
     throw new HttpError(404, '找不到研究編號。')
   await db.prepare('INSERT INTO feedback_records (feedback_id, analysis_id, research_id, helpful, rating, reason_code, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(newId(), b.analysis_id ?? null, b.research_id ?? null, bool(b.helpful), b.rating ?? null, b.reason_code ?? null, bool(!isFormal(c.get('settings'))), nowIso()).run()
+    .bind(newId(), b.analysis_id ?? null, b.research_id ?? null, bool(b.helpful), b.rating ?? null, b.reason_code ?? null, analysis?.is_demo ?? bool(!isFormal(c.get('settings'))), nowIso()).run()
   return c.json({ recorded: true })
 })
 

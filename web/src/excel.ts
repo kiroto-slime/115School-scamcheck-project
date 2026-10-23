@@ -35,23 +35,28 @@ export async function buildWorkbook(data: ExportData): Promise<ArrayBuffer> {
   wb.created = new Date(data.exported_at)
   for (const sheet of data.sheets) {
     const ws = wb.addWorksheet(sheet.name)
+    ws.properties.defaultRowHeight = 20
     const header = ws.addRow(sheet.headers)
     header.eachCell((c) => {
-      c.font = { bold: true }
+      c.font = { name: '微軟正黑體', size: 11, bold: true }
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
     })
     for (const row of sheet.rows) {
-      ws.addRow(row.map((v, i) => (sheet.dateColumns.includes(i) && v ? toDate(v) : safeCell(v))))
+      const dataRow = ws.addRow(row.map((v, i) => (sheet.dateColumns.includes(i) && v ? toDate(v) : safeCell(v))))
+      dataRow.font = { name: '微軟正黑體', size: 11 }
+      dataRow.alignment = { vertical: 'top', wrapText: true }
     }
     for (const i of sheet.dateColumns) ws.getColumn(i + 1).numFmt = DATE_FMT
     ws.views = [{ state: 'frozen', ySplit: 1 }]
     ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.headers.length } }
     sheet.headers.forEach((h, i) => {
-      const longest = Math.max(h.length * 2, ...sheet.rows.map((r) => Math.min(String(r[i] ?? '').length, 60)))
-      ws.getColumn(i + 1).width = Math.max(10, Math.min(longest + 2, 60))
+      let longest = h.length * 2
+      for (const row of sheet.rows) longest = Math.max(longest, Math.min(String(row[i] ?? '').length * 1.6, 60))
+      const summaryWidths = [42, 28, 48, 48, 42, 36, 24, 34, 16, 42, 48]
+      ws.getColumn(i + 1).width = sheet.name === '查核摘要' ? summaryWidths[i] ?? 30 : Math.max(12, Math.min(longest + 2, 60))
     })
   }
-  wb.views = [{ x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: data.sheets.length - 1, visibility: 'visible' }]
+  wb.views = [{ x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: 0, visibility: 'visible' }]
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>
 }
 

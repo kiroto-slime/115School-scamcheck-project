@@ -1,0 +1,359 @@
+/* ===== 小方塊跑酷：感染版開場與遊戲畫面 ===== */
+.ex-page {
+  --ex-pink: #ff2d95;
+  --ex-green: #3dff7a;
+  --ex-cyan: #29e3ff;
+  --ex-yellow: #ffe14d;
+  --ex-black: #0b0410;
+  --ex-red: #ff2a3d;
+}
+
+/* ----- 紅色布幕：一層一層從上往下蓋 ----- */
+#ex-curtain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  transition: opacity 1.2s ease;
+}
+
+#ex-curtain .band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc(100% / 7 + 2px);
+  background: linear-gradient(180deg, rgba(120, 0, 16, .92), rgba(200, 0, 30, .85));
+  box-shadow: 0 10px 18px rgba(80, 0, 10, .6);
+  transform: translateY(-120vh);
+}
+
+/* 下緣的血滴 */
+#ex-curtain .band::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -14px;
+  height: 14px;
+  background: radial-gradient(circle at 10px 0, rgba(200, 0, 30, .85) 9px, transparent 10px) 0 0 / 46px 14px repeat-x;
+}
+
+#ex-curtain.falling .band { animation: bandDrop .55s cubic-bezier(.3, 1.35, .6, 1) forwards; }
+#ex-curtain.fade { opacity: 0; }
+
+@keyframes bandDrop { to { transform: translateY(0); } }
+
+/* ----- 感染後的開場 ----- */
+.ex-page.corrupted {
+  --bg: #12030a;
+  --bg2: #22070f;
+  --panel: #1c060d;
+  --line: #6b1626;
+  --text: #ffdfe4;
+  --muted: #e39aa6;
+  --green: #ff4d6d;
+  --red: #ff2a3d;
+  --glow: #3a0a14;
+  --soft-green: #2a0910;
+  --soft-yellow: #2a0910;
+  background: radial-gradient(ellipse at top, #4a0716 0%, #12030a 65%) fixed;
+  color: var(--text);
+}
+
+.ex-page.corrupted .topbar { background: #0d0206; border-color: #6b1626; }
+.ex-page.corrupted .panel { border-color: #8a1027; box-shadow: 0 0 40px rgba(255, 30, 60, .25); }
+
+/* 吉祥物整體偏紅 */
+.ex-page.corrupted .brand-icon {
+  filter: grayscale(1) sepia(1) saturate(12) hue-rotate(-35deg) drop-shadow(0 0 8px #ff1f3d);
+}
+
+.ex-page.corrupted .packet-helper {
+  background: #c1121f;
+  border-color: #ff2a3d;
+  color: #fff;
+  box-shadow: 0 0 26px #ff1f3d;
+  animation: shiver .18s infinite;
+}
+
+.ex-page.corrupted .packet-helper::before { background: #ff6b7d; }
+
+@keyframes shiver {
+  50% { transform: translate(1px, -1px); }
+}
+
+.ex-page.corrupted .terminal-line { color: #ff6b7d; }
+.ex-page.corrupted .offline-badge { color: #ff6b7d; border-color: #ff6b7d; }
+.ex-page.corrupted .btn.primary {
+  background: var(--ex-pink);
+  border-color: var(--ex-pink);
+  color: #fff;
+  font-style: italic;
+  letter-spacing: 1px;
+  box-shadow: 0 0 18px rgba(255, 45, 149, .6);
+}
+
+/* 標題故障效果 */
+.ex-page.corrupted #ex-title {
+  position: relative;
+  color: #fff;
+  animation: glitch 2.2s infinite steps(1);
+}
+
+.ex-page.corrupted #ex-title::before,
+.ex-page.corrupted #ex-title::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.ex-page.corrupted #ex-title::before { color: var(--ex-cyan); transform: translate(-3px, 0); clip-path: inset(0 0 55% 0); opacity: .8; }
+.ex-page.corrupted #ex-title::after { color: var(--ex-red); transform: translate(3px, 0); clip-path: inset(55% 0 0 0); opacity: .8; }
+
+@keyframes glitch {
+  0%, 88%, 100% { transform: none; }
+  90% { transform: translate(-4px, 1px) skewX(-8deg); }
+  94% { transform: translate(4px, -1px) skewX(6deg); }
+}
+
+/* ----- 遊戲 / 結算 圖層 ----- */
+.ex-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 10px;
+  background: var(--ex-black);
+  padding: 80px 16px 16px;
+  overflow-y: auto;
+}
+
+.ex-layer[hidden], .ex-modal[hidden] { display: none; }
+
+#ex-game {
+  padding: 8px;
+  gap: 0;
+  overflow: hidden;
+}
+
+#game-stage {
+  container-type: inline-size;
+  position: relative;
+  width: min(calc(100vw - 16px), calc((100dvh - 16px) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  flex-shrink: 0;
+  border-radius: 10px;
+  outline: 2px solid var(--ex-pink);
+  box-shadow: 0 0 24px rgba(255, 45, 149, .3);
+  background: #000;
+}
+
+#ex-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+/* 控制層不攔截畫面，只有按鈕本身接受觸控。 */
+.touch-controls {
+  --main-control-size: clamp(48px, 13cqw, 96px);
+  --main-control-inset: min(10%, max(8px, calc((100% - 3 * var(--main-control-size) - 24px) / 2)));
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.move-controls { position: absolute; bottom: 16%; left: var(--main-control-inset); display: flex; gap: 12px; }
+.control-btn,
+#game-stage .rank-btn {
+  width: clamp(48px, 7vw, 64px);
+  height: clamp(48px, 7vw, 64px);
+  min-width: 48px;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #fff;
+  font-size: 24px;
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .2), rgba(25, 15, 40, .22));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 3px 14px rgba(0, 0, 0, .3);
+  backdrop-filter: blur(10px) saturate(1.35);
+  -webkit-backdrop-filter: blur(10px) saturate(1.35);
+  text-shadow: 0 1px 4px #000;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+}
+.control-btn:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+.control-btn.is-held { background: rgba(255, 45, 149, .45); border-color: #fff; }
+.control-btn[data-control] { width: var(--main-control-size); height: var(--main-control-size); font-size: clamp(24px,5cqw,38px); }
+.jump-btn[data-control] { position: absolute; right: var(--main-control-inset); bottom: 16%; font-size: clamp(16px,3cqw,24px); }
+.pause-btn { position: absolute; top: 14%; right: calc(clamp(48px, 7vw, 64px) + 16px); font-size: 14px; }
+#game-stage .rank-btn { position: absolute; top: 14%; right: 8px; z-index: 2; font-size: 20px; }
+.sound-toggle { position: fixed; top: 12px; right: 84px; z-index: 120; font-size: 22px; }
+#game-stage .sound-toggle { position: absolute; top: 14%; right: calc(2 * clamp(48px, 7vw, 64px) + 24px); z-index: 2; }
+
+/* ----- 暫停與排行榜視窗 ----- */
+.ex-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 0, 10, .72);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.ex-card {
+  width: min(640px, 100%);
+  background: #140a1c;
+  color: #fff;
+  border: 3px solid var(--ex-green);
+  border-radius: 14px;
+  padding: 24px 26px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  box-shadow: 0 0 36px rgba(61, 255, 122, .3);
+  animation: exPop .25s ease;
+}
+
+@keyframes exPop { from { transform: scale(.85) rotate(-2deg); opacity: 0; } }
+
+.ex-tag {
+  display: inline-block;
+  background: var(--ex-green);
+  color: #001a08;
+  font: italic 900 16px "Arial Black", Impact, sans-serif;
+  padding: 3px 12px;
+  transform: skewX(-12deg);
+  margin-bottom: 10px;
+}
+
+.ex-card h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.5; }
+.quiz-copy { font-size: 18px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.quiz-options { display: grid; gap: 10px; margin: 16px 0; }
+.quiz-options button { text-align: left; font-style: normal; overflow-wrap: anywhere; }
+.quiz-options button:disabled { opacity: .65; cursor: default; }
+.quiz-card [hidden] { display: none; }
+
+.ex-small { color: #b9a7c8; font-size: 13px; margin: 12px 0 0; }
+
+/* ----- 結算 ----- */
+.result-card { text-align: center; border-color: var(--ex-pink); box-shadow: 0 0 40px rgba(255, 45, 149, .4); }
+
+.r-title {
+  margin: 0;
+  font: italic 900 64px/1.1 "Arial Black", Impact, sans-serif;
+  letter-spacing: 2px;
+  color: var(--ex-red);
+  text-shadow: 3px 3px 0 #000, 0 0 24px rgba(255, 42, 61, .7);
+}
+
+.r-title.clear {
+  color: var(--ex-yellow);
+  text-shadow: 3px 3px 0 var(--ex-pink), 0 0 26px rgba(255, 225, 77, .8);
+}
+
+.r-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.r-stats div { background: #22122e; border-radius: 10px; padding: 8px 4px; }
+.r-stats span { display: block; font-size: 12px; color: #b9a7c8; letter-spacing: 1px; }
+.r-stats b { font-size: 22px; color: var(--ex-green); word-break: break-all; }
+
+.r-btns { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; }
+
+.ex-btn {
+  flex: 1;
+  font: italic 900 18px "Microsoft JhengHei", sans-serif;
+  padding: 12px;
+  border-radius: 10px;
+  border: 2px solid var(--ex-pink);
+  background: var(--ex-pink);
+  color: #fff;
+  cursor: pointer;
+}
+
+.ex-btn.ghost { background: transparent; color: var(--ex-pink); }
+.ex-btn:hover { filter: brightness(1.15); }
+
+/* ----- 右上角排行榜按鈕 ----- */
+.rank-btn {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 120;
+  font: italic 900 15px "Arial Black", Impact, sans-serif;
+  color: #fff;
+  background: var(--ex-pink);
+  border: 2px solid #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  box-shadow: 0 0 14px rgba(255, 45, 149, .6);
+}
+
+.ex-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 140px);
+  z-index: 130;
+  background: #140a1c;
+  color: #fff;
+  border-left: 5px solid var(--ex-pink);
+  border-radius: 8px;
+  padding: 10px 16px;
+  max-width: 90vw;
+  transition: transform .3s ease;
+}
+
+.ex-toast.show { transform: translate(-50%, 0); }
+
+@media (max-width: 640px) {
+  .r-title { font-size: 40px; }
+  .r-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 遊戲中讓整個視窗留給畫布，操作說明保留在網站遊戲頁。 */
+.ex-page.playing .topbar { display: none; }
+.ex-page.playing { overflow: hidden; }
+
+.ex-page .topbar { min-height: 64px; padding-right: 72px; }
+
+/* ----- 本機排行榜 ----- */
+.rank-btn { padding: 6px 12px; }
+
+.r-rank { font-weight: bold; color: var(--ex-green); margin: 4px 0 8px; }
+
+.board-wrap { max-height: 40vh; overflow-y: auto; }
+
+.ex-board {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  table-layout: fixed;
+  overflow-wrap: anywhere;
+}
+
+.ex-board th,
+.ex-board td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #3a2347; }
+.ex-board th { color: #b9a7c8; font-weight: normal; font-size: 13px; }
+.ex-board tr.me td { background: #3a2a08; color: var(--ex-yellow); font-weight: bold; }
+.ex-board .clear { color: var(--ex-yellow); font-style: italic; font-weight: 900; }
+.ex-board .over { color: #ff6b7d; font-style: italic; }

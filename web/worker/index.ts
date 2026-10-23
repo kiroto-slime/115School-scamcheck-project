@@ -8,6 +8,7 @@ import { GeminiError } from './gemini'
 import { admin } from './routes/admin'
 import { analyze } from './routes/analyze'
 import { research } from './routes/research'
+import { game } from './routes/game'
 import { RULE_VERSION } from './rules'
 import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
 import { tw165Meta } from './urlcheck'
@@ -52,6 +53,7 @@ app.get('/health', async (c) => {
 })
 
 app.route('/', analyze)
+app.route('/', game)
 app.route('/', research)
 app.route('/', admin)
 

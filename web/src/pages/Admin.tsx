@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, formatTime, postJson } from '../api'
 import { Alert, Section, Spinner } from '../components/ui'
+import { GameQuestions } from '../components/GameQuestions'
 import { buildWorkbook, downloadBlob, type ExportData } from '../excel'
 import { buildUploadChunks, parseCsvFiles, TW165_DATASETS } from '../tw165'
 
 const TOKEN_KEY = 'scamcheck_admin_token'
 const getToken = () => { try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null } }
 type Dataset = 'formal' | 'demo'
-type Tab = 'overview' | 'records' | 'cases' | 'patterns' | 'business' | 'data' | 'settings'
+type Tab = 'overview' | 'records' | 'cases' | 'patterns' | 'business' | 'data' | 'settings' | 'game'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? '無資料' : `${(v * 100).toFixed(1)}%`)
@@ -35,7 +36,7 @@ export default function Admin() {
 
   if (!token) return <Login onLogin={(t) => { sessionStorage.setItem(TOKEN_KEY, t); setToken(t) }} />
 
-  const tabs: [Tab, string][] = [['overview', '總覽與統計'], ['records', '研究紀錄'], ['cases', '案例管理'], ['patterns', '風險模式審核'], ['business', '商業指標'], ['data', '匯出與資料管理'], ['settings', '系統設定']]
+  const tabs: [Tab, string][] = [['overview', '總覽與統計'], ['records', '研究紀錄'], ['cases', '案例管理'], ['patterns', '風險模式審核'], ['business', '商業指標'], ['data', '匯出與資料管理'], ['settings', '系統設定'], ['game', '遊戲題庫']]
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -47,14 +48,16 @@ export default function Admin() {
       </div>
       <label className="flex items-center gap-2 text-sm">資料集：
         <select className="input min-h-11 w-auto" value={dataset} onChange={(e) => setDataset(e.target.value as Dataset)}>
-          <option value="demo">模擬資料（DEMO）</option><option value="formal">正式資料</option>
+          <option value="demo">DEMO／舊查核待確認</option><option value="formal">使用者查核／正式研究</option>
         </select>
       </label>
+      <p className="text-sm text-slate-600">一般查核與前後測研究模式分開管理。舊查核維持原分類，DEMO 中可能包含使用者紀錄，請看每筆來源；尚未確認前不要清除。</p>
       {error && <Alert kind="error">{error}</Alert>}
       {notice && <Alert kind="success">{notice}</Alert>}
       {tab === 'overview' && <Overview call={call} dataset={dataset} />}
       {tab === 'records' && <Records call={call} dataset={dataset} />}
       {tab === 'cases' && <Cases call={call} />}
+      {tab === 'game' && <GameQuestions call={call} />}
       {tab === 'patterns' && <Patterns call={call} />}
       {tab === 'business' && <Business call={call} dataset={dataset} onDone={setNotice} />}
       {tab === 'data' && <DataTools token={token} call={call} dataset={dataset} onDone={setNotice} onError={setError} />}
@@ -149,7 +152,7 @@ function Records({ call, dataset }: { call: Call; dataset: Dataset }) {
       </Section>
       <Section title={`已同意研究的分析紀錄（最近 ${analyses.length} 筆，不含原文）`}>
         <ul className="space-y-1 text-sm">{analyses.map((a) => (
-          <li key={a.analysis_id} className="flex flex-wrap justify-between gap-2 border-b py-1"><span>{formatTime(a.created_at)} · {a.media_type}</span><span>{a.risk_level}（{a.risk_score ?? '—'}）{a.risk_tags.join(', ')}</span></li>))}</ul>
+          <li key={a.analysis_id} className="flex flex-wrap justify-between gap-2 border-b py-1"><span>{formatTime(a.created_at)} · {a.media_type} · {a.origin_label}</span><span>{a.risk_level}（{a.risk_score ?? '—'}）{a.risk_tags.join(', ')}</span></li>))}</ul>
         {analyses.length === 0 && <p className="text-sm text-slate-600">尚無資料</p>}
       </Section>
     </div>
@@ -279,7 +282,8 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
   return (
     <div className="space-y-4">
       <Section title="匯出研究資料">
-        <p className="text-sm">匯出目前選擇的資料集（{dataset === 'demo' ? '模擬資料 DEMO' : '正式資料'}）為 Excel，含 Analysis_Records、Source_Results、Research_Responses、Pattern_Dataset、Consent_Records、Product_Survey、Summary 七個工作表。不含原始投稿或個資。</p>
+        <p className="text-sm">匯出目前選擇的資料集（{dataset === 'demo' ? 'DEMO／舊查核待確認' : '使用者查核／正式研究'}）為 Excel。先看「查核摘要」的發生什麼、多嚴重、有哪些問題與建議怎麼處理；另外保留分析紀錄、查核來源、研究作答、風險模式資料集、同意紀錄、產品需求問卷、統計總覽及匯出說明。</p>
+        <p className="text-sm text-slate-600">只整理已保存的結果，不還原投稿原文或補編事件。常見個資會再次遮蔽；公開或製作教材前，仍須人工檢查並確認同意範圍。</p>
         {busy ? <Spinner label={busy} /> : (
           <div className="flex flex-col gap-2 sm:flex-row">
             <button className="btn-primary" onClick={exportExcel}>匯出研究資料（.xlsx）</button>

@@ -183,6 +183,17 @@ summary:focus-visible { border-radius: 8px; }
 .site-footer { padding: 20px 88px 28px; border-top: 1px solid var(--color-slate-200); color: var(--color-slate-500); text-align: center; }
 .mobile-nav { display: none; }
 .mobile-menu-toggle { display: none; }
+.brand-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sidebar-toggle { border-radius: 12px; }
+.nav-auto .sidebar { position: fixed; z-index: 35; top: calc(var(--topbar-height,64px) + 8px); left: 8px; width: min(264px,calc(100vw - 48px)); max-height: calc(100dvh - var(--topbar-height,64px) - 16px); overflow-y: auto; border: 1px solid var(--control-border); border-radius: 20px; background: linear-gradient(125deg,rgba(255,255,255,.16),transparent 45%),var(--menu-glass); backdrop-filter: blur(22px) saturate(1.2); box-shadow: var(--panel-shadow); transform: translateX(calc(-100% - 10px)); visibility: hidden; pointer-events: none; transition: transform .22s ease,visibility .22s; }
+.nav-auto .desktop-nav { position: static; max-height: none; padding-top: 18px; }
+.nav-auto.nav-peek .sidebar { display: block; transform: translateX(0); visibility: visible; pointer-events: auto; transition: transform .22s ease; }
+.sidebar-edge { position: fixed; z-index: 36; left: 0; top: var(--topbar-height,64px); bottom: 0; width: 10px; }
+.sidebar-handle { position: fixed; z-index: 36; left: 0; top: 36%; display: grid; place-items: center; width: 28px; height: 64px; border: 1px solid var(--control-border); border-left: 0; border-radius: 0 14px 14px 0; color: var(--color-teal-700); background: var(--menu-glass); backdrop-filter: blur(16px); box-shadow: var(--panel-shadow); cursor: pointer; }
+.sidebar-handle svg { width: 22px; height: 22px; }
+.nav-peek .sidebar-handle { visibility: hidden; }
+.sidebar-backdrop { position: fixed; z-index: 31; inset: var(--topbar-height,64px) 0 0; border: 0; background: rgba(20,50,42,.08); cursor: default; }
+.nav-auto .mobile-menu-toggle { display: none; }
 .floating-tools { position: fixed; right: 26px; bottom: calc(23px + env(safe-area-inset-bottom)); width: 48px; height: 48px; z-index: 40; isolation: isolate; }
 .floating-tools button { position: absolute; inset: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 16px; border: 1px solid var(--control-border); background: var(--surface); color: var(--color-slate-800); backdrop-filter: blur(16px); box-shadow: var(--panel-shadow); cursor: pointer; }
 .floating-tools svg { width: 26px; height: 26px; }

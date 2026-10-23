@@ -1,7 +1,7 @@
 /** 合成測試資料（全部 is_demo=1，標示 DEMO）。只用於展示與測試，不可當作研究結果。 */
 import { analyzeText, RULE_VERSION } from './rules'
 import { CaseRow, pickCasePair } from './research'
-import { newId, nowIso } from './util'
+import { HttpError, newId, nowIso } from './util'
 
 const DEMO_TEXTS = [
   '【物流通知】您的包裹地址錯誤，請於24小時內點擊 https://bit.ly/x 更新資料並支付手續費。',
@@ -70,6 +70,13 @@ export async function seedDemo(db: D1Database, participants = 12, seed = 115): P
 }
 
 export async function clearDemo(db: D1Database): Promise<Record<string, number>> {
+  // 舊版本曾把一般查核一起標成 DEMO；來源未確認前整批拒絕，避免誤刪。
+  const unconfirmed = await db.prepare(`SELECT analysis_id FROM analysis_records WHERE is_demo = 1
+    AND COALESCE(CASE WHEN json_valid(result_json) THEN json_type(result_json, '$.demo') ELSE NULL END, '') != 'true' LIMIT 1`).first()
+  const linkedConsent = await db.prepare(`SELECT c.consent_id FROM consent_records c JOIN analysis_records a ON a.research_id_nullable = c.research_id
+    WHERE c.is_demo = 1 AND a.is_demo = 0 LIMIT 1`).first()
+  if (unconfirmed || linkedConsent)
+    throw new HttpError(409, 'DEMO 中有使用者查核或來源待確認的舊紀錄，已停止清除。請先備份並確認資料來源。')
   const tables = ['research_responses', 'consent_records', 'feedback_records', 'research_participants', 'product_survey_responses', 'business_events']
   const out: Record<string, number> = {}
   await db.prepare('DELETE FROM source_results WHERE analysis_id IN (SELECT analysis_id FROM analysis_records WHERE is_demo = 1)').run()
