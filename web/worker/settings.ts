@@ -7,7 +7,10 @@ export interface AppSettings {
   research_collection_enabled: boolean
   gemini_model: string
   gemini_daily_limit: number
+  cofacts_enabled: boolean
   cofacts_daily_limit: number
+  google_daily_limit: number
+  virustotal_daily_limit: number
   consent_version: string
   temp_retention_hours: number
   research_retention_days: number
@@ -19,7 +22,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   research_collection_enabled: true,
   gemini_model: 'gemini-3.8-flash',
   gemini_daily_limit: 300,
+  cofacts_enabled: true,
   cofacts_daily_limit: 500,
+  google_daily_limit: 1000,
+  virustotal_daily_limit: 450,
   consent_version: '2026.10-v0.2',
   temp_retention_hours: 24,
   research_retention_days: 365,
@@ -50,6 +56,9 @@ export async function saveSettings(db: D1Database, patch: Partial<AppSettings>) 
   if (stmts.length) await db.batch(stmts)
 }
 
+export const googleMode = (env: Env) => (env.GOOGLE_CLOUD_API_KEY ? 'live' : 'off') as 'live' | 'off'
+export const virusTotalMode = (env: Env) => (env.VIRUSTOTAL_API_KEY ? 'live' : 'off') as 'live' | 'off'
 export const isFormal = (s: AppSettings) => s.research_mode === 'formal'
 export const aiMode = (env: Env) => (env.GEMINI_API_KEY ? 'gemini' : 'disabled') as 'gemini' | 'disabled'
-export const cofactsLive = (env: Env) => Boolean(env.COFACTS_APP_ID && env.COFACTS_APP_SECRET)
+/** Cofacts 公開 API 不需要憑證；管理員可在「系統設定」關閉 */
+export const cofactsMode = (s: AppSettings) => (s.cofacts_enabled ? 'live' : 'off') as 'live' | 'off'

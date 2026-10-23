@@ -36,7 +36,7 @@ export default function Privacy() {
       </Section>
       <Section title="資料傳輸與第三方">
         <ul className="list-disc space-y-1 pl-5">
-          <li>若你勾選「送至 Cofacts 比對」且網站已取得 Cofacts 憑證，文字會在遮蔽手機、身分證、Email、長數字後送到 Cofacts 官方 API 查詢。Cofacts 回傳的查核內容以 CC BY-SA 4.0 授權並標示來源。</li>
+          <li>若你勾選「送至 Cofacts 比對」，文字會在遮蔽手機、身分證、Email、長數字後送到 Cofacts「真的假的」官方公開 API 查詢（Cofacts 是臺灣的公民協作查核資料庫）。不勾選就不會送出。Cofacts 回傳的查核內容以 CC BY-SA 4.0 授權並標示來源。</li>
           <li>若網站已設定 Gemini 且你勾選「使用 AI 分析」，文字（先遮蔽個資）、圖片與影片會送到 Google Gemini API 分析，並要求 Google 不保存這次請求。使用 Google 免費方案時，Google 可能依其條款使用送出的內容改進服務，因此<strong>請勿上傳含有他人隱私或敏感資訊的內容</strong>。不勾選就不會送出。</li>
           <li>本網站架設在 Cloudflare（Workers 與 D1 資料庫），研究資料存放在 Cloudflare 的資料中心。</li>
           <li>網站不會開啟或連線你訊息中的網址。</li>

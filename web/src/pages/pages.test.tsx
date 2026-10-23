@@ -8,15 +8,16 @@ import Research from './Research'
 import type { AnalysisResult } from '../api'
 
 const health = { status: 'ok', version: '0.1.0', rule_version: 'r', limits: { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 },
-  modes: { cofacts: 'mock', ai: 'disabled', ai_model: null, research_mode: 'simulation', research_collection_enabled: true, admin_configured: true } }
+  modes: { cofacts: 'live', google: 'off', virustotal: 'off', tw165: { available: true, updated_at: null, count: 1 }, ai: 'disabled', ai_model: null, research_mode: 'simulation', research_collection_enabled: true, admin_configured: true } }
 
 const result: AnalysisResult = {
   analysis_id: 'a'.repeat(32), created_at: '2026-10-22T00:00:00', media_type: 'text', risk_level: '高', risk_score: 80, risk_tags: ['urgency'],
   analysis_status: 'completed', rule_version: 'rules-test', external_ai_used: false, consent_research: false,
   score_disclaimer: '風險指數為規則加權分數，不是經統計校準的詐騙機率，也不是司法認定。',
-  cofacts: { status: 'not_configured', mode: 'mock', message: 'Demo 模式：尚未設定 Cofacts 憑證，未進行查詢（尚無查核資料）', license: 'CC BY-SA 4.0', matches: [] },
+  cofacts: { status: 'not_found', mode: 'live', message: '尚無查核資料', license: 'CC BY-SA 4.0', matches: [] },
   features: [{ feature_id: 'urgency', label: '急迫時間壓力', description: 'd', triggers: ['立即'], rule_version: 'rules-test', human_verified: false }],
   basis: ['偵測到「急迫時間壓力」：立即'], safe_actions: ['停下來查證'], ai: { provider: 'disabled', status: 'disabled', is_demo: false, summary: '尚未設定 Gemini API 金鑰', external: false },
+  url_checks: { url_count: 0, tw165: { status: 'no_url', message: '', updated_at: null, matches: [] }, safe_browsing: { status: 'disabled', message: '', threats: [] }, virustotal: { status: 'disabled', message: '', threats: [] } },
   media: {}, checked_at: '2026-10-22T00:00:00Z',
 }
 
@@ -68,7 +69,7 @@ describe('Result page', () => {
     render(<MemoryRouter initialEntries={['/result/' + 'a'.repeat(32)]}><Routes><Route path="/result/:id" element={<Result />} /></Routes></MemoryRouter>)
     await screen.findByText('Cofacts 查核結果')
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.replace(/^\d/, ''))
-    expect(headings).toEqual(['Cofacts 查核結果', '規則分析結果', 'AI 分析（Google Gemini）', '綜合風險指數', '建議的安全行動', '查核來源與時間', '這次結果對你有幫助嗎？'])
+    expect(headings).toEqual(['Cofacts 查核結果', '網址安全檢查', '規則分析結果', 'AI 分析（Google Gemini）', '綜合風險指數', '建議的安全行動', '查核來源與時間', '這次結果對你有幫助嗎？'])
     expect(screen.getByText(/尚無查核資料/)).toBeInTheDocument()
     expect(screen.queryByText(/在 Cofacts 查看原始查核/)).not.toBeInTheDocument()
     expect(screen.getByText(/尚未經人工驗證/)).toBeInTheDocument()

@@ -10,7 +10,7 @@ export async function computeStatistics(db: D1Database, demo: boolean) {
   const all = <T>(sql: string) => db.prepare(sql).bind(d).all<T>().then((r) => r.results)
   const [analyses, sources, responses, participants, feedback, surveys, events] = await Promise.all([
     all<{ analysis_id: string; risk_tags_json: string }>('SELECT analysis_id, risk_tags_json FROM analysis_records WHERE is_demo = ? AND consent_research = 1'),
-    all<{ analysis_id: string; result_status: string }>('SELECT s.analysis_id, s.result_status FROM source_results s JOIN analysis_records a ON a.analysis_id = s.analysis_id WHERE a.is_demo = ? AND a.consent_research = 1'),
+    all<{ analysis_id: string; result_status: string }>(`SELECT s.analysis_id, s.result_status FROM source_results s JOIN analysis_records a ON a.analysis_id = s.analysis_id WHERE a.is_demo = ? AND a.consent_research = 1 AND s.provider = 'cofacts'`),
     all<Resp>('SELECT research_id, experiment_group, phase, user_decision, correctness, error_type FROM research_responses WHERE is_demo = ?'),
     all<{ experiment_group: string }>('SELECT experiment_group FROM research_participants WHERE is_demo = ?'),
     all<{ helpful: number | null; rating: number | null }>('SELECT helpful, rating FROM feedback_records WHERE is_demo = ?'),

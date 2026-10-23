@@ -312,7 +312,9 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
   const save = async () => {
     if (f.research_mode === 'formal' && data.research_mode !== 'formal' && !confirmFormal) return setConfirmFormal(true)
     const body = { research_mode: f.research_mode, research_group_mode: f.research_group_mode, research_collection_enabled: f.research_collection_enabled,
-      gemini_model: String(f.gemini_model).trim(), gemini_daily_limit: Number(f.gemini_daily_limit), cofacts_daily_limit: Number(f.cofacts_daily_limit) }
+      gemini_model: String(f.gemini_model).trim(), gemini_daily_limit: Number(f.gemini_daily_limit),
+      cofacts_enabled: Boolean(f.cofacts_enabled), cofacts_daily_limit: Number(f.cofacts_daily_limit),
+      google_daily_limit: Number(f.google_daily_limit), virustotal_daily_limit: Number(f.virustotal_daily_limit) }
     if (await call('/api/admin/settings', { method: 'PUT', body: JSON.stringify(body) })) { setConfirmFormal(false); onDone('設定已儲存，立即生效'); reload() }
   }
   const set = (k: string, v: unknown) => setF({ ...f, [k]: v })
@@ -333,7 +335,11 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
         <label className="block"><span className="label">Gemini 模型名稱</span><input className="input" value={f.gemini_model} onChange={(e) => set('gemini_model', e.target.value)} /></label>
         <p className="text-xs text-slate-500">Google 推出新模型時改這裡即可，例如 gemini-3.8-flash。金鑰在 Cloudflare 後台的 GEMINI_API_KEY 設定。</p>
         <label className="block"><span className="label">Gemini 每日上限（次）</span><input className="input" type="number" min={0} value={f.gemini_daily_limit} onChange={(e) => set('gemini_daily_limit', e.target.value)} /></label>
+        <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={f.cofacts_enabled} onChange={(e) => set('cofacts_enabled', e.target.checked)} />啟用 Cofacts 查核比對（公開 API，不需要憑證）</label>
         <label className="block"><span className="label">Cofacts 每日上限（次）</span><input className="input" type="number" min={0} value={f.cofacts_daily_limit} onChange={(e) => set('cofacts_daily_limit', e.target.value)} /></label>
+        <label className="block"><span className="label">Google 每日上限（次，安全瀏覽與事實查核各自計算）</span><input className="input" type="number" min={0} value={f.google_daily_limit} onChange={(e) => set('google_daily_limit', e.target.value)} /></label>
+        <label className="block"><span className="label">VirusTotal 每日上限（次，免費版最多 500）</span><input className="input" type="number" min={0} max={500} value={f.virustotal_daily_limit} onChange={(e) => set('virustotal_daily_limit', e.target.value)} /></label>
+        <p className="text-xs text-slate-500">Google 與 VirusTotal 的金鑰在 Cloudflare 後台設定：GOOGLE_CLOUD_API_KEY、VIRUSTOTAL_API_KEY（類型選「秘密」）。沒設定時查核頁不會顯示這兩個選項。</p>
       </Section>
       {confirmFormal && <Alert kind="warn">切換到正式模式前，請確認已通過學校審查、取得法定代理人同意，並已核准研究案例。確定請再按一次「儲存設定」。</Alert>}
       <button className="btn-primary" onClick={save}>儲存設定</button>

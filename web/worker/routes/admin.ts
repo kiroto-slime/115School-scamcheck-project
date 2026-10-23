@@ -122,7 +122,10 @@ guarded.put('/settings', async (c) => {
     research_collection_enabled: z.boolean(),
     gemini_model: z.string().regex(/^[a-z0-9][a-z0-9.\-]{2,60}$/),
     gemini_daily_limit: z.number().int().min(0).max(100_000),
+    cofacts_enabled: z.boolean(),
     cofacts_daily_limit: z.number().int().min(0).max(100_000),
+    google_daily_limit: z.number().int().min(0).max(100_000),
+    virustotal_daily_limit: z.number().int().min(0).max(500),
   }).partial())
   await saveSettings(c.env.DB, b as Partial<AppSettings>)
   await audit(c.env.DB, c.get('admin'), 'update_settings', null, JSON.stringify(b))

@@ -22,7 +22,7 @@ export default function Home() {
       <section className="card space-y-2">
         <h2>研究計畫</h2>
         <p>
-          本專題為臺灣技術型高中資料處理科學生團隊的商業與管理群專題。研究測驗會請你先自行判斷一則模擬訊息，
+          本專題為三重商工資料處理科學生團隊的專題。研究測驗會請你先自行判斷一則模擬訊息，
           再看過指定的查核輔助後判斷另一則難度相同的訊息，以比較不同輔助方式的效果。
           研究資料採匿名編號、需你主動同意，可隨時撤回與刪除。詳見 <Link to="/privacy">隱私與研究說明</Link>。
         </p>
@@ -31,7 +31,7 @@ export default function Home() {
       <section className="card space-y-2">
         <h2>功能與限制</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm sm:text-base">
-          <li>文字：規則分析＋（設定憑證後）Cofacts 查核比對。上限 {l?.max_text_chars ?? 10000} 字。</li>
+          <li>文字：規則分析＋Cofacts「真的假的」查核比對（可自行選擇不送出）。上限 {l?.max_text_chars ?? 10000} 字。</li>
           <li>
             圖片：JPG / PNG / WebP，{l?.max_image_mb ?? 10} MB 以內。{m?.ai === 'gemini' ? '由 Gemini 直接讀圖（含圖中文字），AI 可能出錯。' : '目前未設定 AI，需手動輸入圖片中的文字。'}
           </li>

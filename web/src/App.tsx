@@ -34,12 +34,15 @@ export default function App() {
             識詐數據庫
           </Link>
           <button
-            className="btn-secondary md:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 md:hidden"
             aria-expanded={open}
             aria-controls="main-nav"
+            aria-label={open ? '關閉選單' : '開啟選單'}
             onClick={() => setOpen((v) => !v)}
           >
-            {open ? '關閉選單' : '選單'}
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
           </button>
           <nav id="main-nav" className={`${open ? 'flex' : 'hidden'} absolute inset-x-0 top-full flex-col border-b border-slate-200 bg-white p-2 md:static md:flex md:flex-row md:border-0 md:p-0`}>
             {NAV.map(([to, label]) => (
@@ -70,7 +73,7 @@ export default function App() {
         </Routes>
       </main>
       <footer className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">
-        <p>識詐數據庫 v0.2（高中專題研究原型）。分析結果僅供參考，不是司法認定或正式詐騙判決。</p>
+        <p>識詐數據庫 v0.2（三重商工資料處理科專題研究原型）。分析結果僅供參考，不是司法認定或正式詐騙判決。</p>
         <p className="mt-1">遇到可疑狀況請撥打 165 反詐騙諮詢專線。 · <Link to="/privacy">隱私政策</Link></p>
       </footer>
     </div>

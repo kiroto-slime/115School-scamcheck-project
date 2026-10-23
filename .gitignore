@@ -4,14 +4,16 @@
 !.env.example
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 **/data/
 *.db
 *.sqlite*
 uploads/
 
-# Cloudflare 本機狀態與自動產生的型別檔
+# Cloudflare 本機狀態與自動產生的檔案
 .wrangler/
 worker-configuration.d.ts
+web/public/tw165/
 
 # Python
 .venv/

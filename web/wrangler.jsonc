@@ -6,6 +6,7 @@
   "compatibility_date": "2026-10-01",
   // 前端 React 網頁：/api/* 交給 Worker，其他路徑交給靜態檔（找不到時回 index.html）
   "assets": {
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },

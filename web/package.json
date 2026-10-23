@@ -4,8 +4,8 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/migrate-local.mjs && vite",
-    "build": "wrangler types && tsc -p tsconfig.json && tsc -p worker/tsconfig.json && vite build",
+    "dev": "node scripts/migrate-local.mjs && node scripts/build-tw165.mjs && vite",
+    "build": "wrangler types && node scripts/build-tw165.mjs && tsc -p tsconfig.json && tsc -p worker/tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run && vitest run --config vitest.worker.config.ts",
     "test:web": "vitest run",
@@ -15,7 +15,8 @@
     "db:migrate:local": "node scripts/migrate-local.mjs",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "data:165": "node scripts/build-tw165.mjs --force"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

@@ -58,14 +58,14 @@ export function ModeBanner() {
   if (!health) return null
   const m = health.modes
   const items = [
-    m.cofacts === 'live' ? 'Cofacts：Live' : 'Cofacts：Demo（未設定憑證，不查詢）',
+    m.cofacts === 'live' ? 'Cofacts：已啟用' : 'Cofacts：已關閉（不查詢）',
     m.ai === 'gemini' ? `AI：Gemini 可用（${m.ai_model}）` : 'AI：未設定金鑰（圖片、影片需手動輸入文字）',
     m.research_mode === 'formal' ? '研究：正式' : '研究：模擬（DEMO）',
   ]
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="系統狀態">
       {items.map((t) => (
-        <span key={t} className={`pill ${t.includes('Live') || t.includes('可用') || t.includes('正式') ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
+        <span key={t} className={`pill ${t.includes('已啟用') || t.includes('可用') || t.includes('正式') ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
           {t}
         </span>
       ))}

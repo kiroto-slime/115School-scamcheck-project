@@ -1,6 +1,7 @@
 /**
  * Cofacts 官方 GraphQL API（https://api.cofacts.tw/）。
- * - 沒有憑證時是 Mock 模式：不查詢、不產生任何虛構查核回覆。
+ * - 公開 API 不需要憑證（Cofacts 尚未開放第三方申請）；若日後取得 COFACTS_APP_ID/SECRET 會自動帶上。
+ * - 管理員可在「系統設定」關閉查詢；關閉時不產生任何虛構查核回覆。
  * - 相似資料不等於同一事件；查無資料不代表沒有詐騙風險。
  * - Cofacts 資料以 CC BY-SA 4.0 授權，顯示時必須標示來源。不爬取 Cofacts 網站。
  */
@@ -15,7 +16,7 @@ const STATUS_ZH: Record<string, string> = {
   found: '找到相關查核資料',
   not_found: '尚無查核資料',
   error: 'Cofacts 查詢失敗或逾時，其他分析仍正常進行。',
-  not_configured: 'Demo 模式：尚未設定 Cofacts 憑證，未進行查詢（尚無查核資料）',
+  disabled: '管理員已關閉 Cofacts 查詢（未進行比對，不代表沒有查核資料）',
   rate_limited: '今日查詢次數已達上限，暫停外部查詢',
   skipped: '未查詢（使用者選擇不送出或沒有可查詢文字）',
 }
@@ -38,13 +39,13 @@ export interface SourceMatch {
 
 export interface SourceLookup {
   status: keyof typeof STATUS_ZH
-  mode: 'live' | 'mock'
+  mode: 'live' | 'off'
   matches: SourceMatch[]
   message: string
   license: string
 }
 
-const lookup = (status: string, mode: 'live' | 'mock', matches: SourceMatch[] = []): SourceLookup =>
+const lookup = (status: string, mode: 'live' | 'off', matches: SourceMatch[] = []): SourceLookup =>
   ({ status, mode, matches, message: STATUS_ZH[status], license: LICENSE })
 
 const canon = (t: string) => (t || '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase()
@@ -72,17 +73,28 @@ export function similarity(a: string, b: string): number {
   return (2 * hit) / (x.length - 1 + y.length - 1)
 }
 
+export const disabledLookup = () => lookup('disabled', 'off')
+
+/** 有專屬憑證才帶上；沒有就用公開存取 */
+function headers(env: Env): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (env.COFACTS_APP_ID && env.COFACTS_APP_SECRET) {
+    h['x-app-id'] = env.COFACTS_APP_ID
+    h['x-app-secret'] = env.COFACTS_APP_SECRET
+  }
+  return h
+}
+
 export async function cofactsLookup(env: Env, text: string, dailyLimit: number, opts: { fetcher?: typeof fetch; retryDelayMs?: number } = {}): Promise<SourceLookup> {
-  if (!(env.COFACTS_APP_ID && env.COFACTS_APP_SECRET)) return lookup('not_configured', 'mock')
   if (!text.trim()) return lookup('skipped', 'live')
   if (!(await takeDailyQuota(env.DB, 'cofacts', dailyLimit))) return lookup('rate_limited', 'live')
-  const doFetch = opts.fetcher ?? fetch
+  const doFetch = opts.fetcher ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
   let data: { data?: { ListArticles?: { edges?: { node?: { id?: string; text?: string; articleReplies?: { reply?: { type?: string; text?: string } }[] } }[] } }; errors?: unknown } | null = null
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await doFetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-app-id': env.COFACTS_APP_ID, 'x-app-secret': env.COFACTS_APP_SECRET },
+        headers: headers(env),
         body: JSON.stringify({ query: QUERY, variables: { text: text.slice(0, 2000) } }),
         signal: AbortSignal.timeout(8000),
       })
@@ -118,4 +130,4 @@ export async function cofactsLookup(env: Env, text: string, dailyLimit: number, 
   return lookup(matches.length ? 'found' : 'not_found', 'live', matches)
 }
 
-export const skippedLookup = (env: Env) => lookup('skipped', env.COFACTS_APP_ID && env.COFACTS_APP_SECRET ? 'live' : 'mock')
+export const skippedLookup = () => lookup('skipped', 'live')

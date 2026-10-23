@@ -55,7 +55,7 @@ export async function seedDemo(db: D1Database, participants = 12, seed = 115): P
       db.prepare(`INSERT INTO analysis_records (analysis_id, research_id_nullable, created_at, media_type, source_count, risk_score_nullable, risk_level, risk_tags_json,
         analysis_status, rule_version, external_ai_used, consent_research, consent_secondary_use, is_demo, result_json) VALUES (?, ?, ?, 'text', 0, ?, ?, ?, 'completed', ?, 0, 1, 0, 1, ?)`)
         .bind(aid, rid, now, r.risk_score, r.risk_level, JSON.stringify(r.tags), RULE_VERSION, JSON.stringify({ demo: true, features: r.features })),
-      db.prepare("INSERT INTO source_results (source_result_id, analysis_id, provider, result_status, match_type, checked_at) VALUES (?, ?, 'cofacts', 'not_configured', 'none', ?)").bind(newId(), aid, now),
+      db.prepare("INSERT INTO source_results (source_result_id, analysis_id, provider, result_status, match_type, checked_at) VALUES (?, ?, 'cofacts', 'not_found', 'none', ?)").bind(newId(), aid, now),
       db.prepare('INSERT INTO feedback_records (feedback_id, analysis_id, research_id, helpful, rating, is_demo, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)').bind(newId(), aid, rid, rand() > 0.3 ? 1 : 0, 2 + Math.floor(rand() * 4), now),
       db.prepare(`INSERT INTO product_survey_responses (survey_id, respondent_role, product, perceived_value, most_needed_feature, teacher_would_use, verbal_interest, trial_intent,
         payment_intent, acceptable_price_range, is_demo, created_at) VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, 1, ?)`).bind(

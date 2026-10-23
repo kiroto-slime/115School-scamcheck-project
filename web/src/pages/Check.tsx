@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
+import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
 import { Alert, Spinner, useHealth } from '../components/ui'
 
 type Mode = 'text' | 'image' | 'video'
@@ -32,6 +33,11 @@ export default function Check() {
   const [queryCofacts, setQueryCofacts] = useState(true)
   const [useAi, setUseAi] = useState(true)
   const aiAvailable = health?.modes.ai === 'gemini'
+  const cofactsAvailable = health?.modes.cofacts === 'live'
+  const googleAvailable = health?.modes.google === 'live'
+  const vtAvailable = health?.modes.virustotal === 'live'
+  const [queryGoogle, setQueryGoogle] = useState(true)
+  const [queryVt, setQueryVt] = useState(false)
   const [consentB, setConsentB] = useState(false)
   const [consentC, setConsentC] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -100,12 +106,13 @@ export default function Check() {
       setBusy('準備中…')
       const rid = await ensureConsent()
       let result: AnalysisResult | NeedsManualText
+      const sourceFlags = { query_cofacts: cofactsAvailable && queryCofacts, query_google: googleAvailable && queryGoogle, query_virustotal: vtAvailable && queryVt }
       if (mode === 'text') {
         setBusy(aiAvailable && useAi ? '分析中（含 Gemini AI，約需 5–30 秒）…' : '分析文字與查詢來源中…')
-        result = await postJson<AnalysisResult>('/api/analyze/text', { text, query_cofacts: queryCofacts, use_ai: aiAvailable && useAi, ...(rid ? { research_id: rid } : {}) })
+        result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiAvailable && useAi, ...(rid ? { research_id: rid } : {}) })
       } else {
         const ai = aiAvailable && useAi
-        const common = { extra_text: extra, query_cofacts: queryCofacts, use_ai: ai, ...(rid ? { research_id: rid } : {}) }
+        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(rid ? { research_id: rid } : {}) }
         if (mode === 'image') {
           setBusy('處理圖片中…')
           const img = await prepareImage(file!)
@@ -187,16 +194,12 @@ export default function Check() {
           <strong>A. 必要處理：</strong>送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；
           分析結果（不含原文）暫存 24 小時後自動刪除。<Link to="/privacy">詳細說明</Link>
         </p>
-        <label className="flex min-h-11 items-start gap-3">
-          <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={queryCofacts} onChange={(e) => setQueryCofacts(e.target.checked)} />
-          <span className="text-sm">將文字送至 Cofacts 比對已查核訊息（送出前會遮蔽手機、身分證、Email 等；不勾選則只做本機規則分析）</span>
-        </label>
-        {aiAvailable && (
-          <label className="flex min-h-11 items-start gap-3">
-            <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
-            <span className="text-sm">使用 Google Gemini AI 分析（內容會傳送到 Google：文字會先遮蔽手機、身分證等，<strong>圖片和影片會原樣傳送</strong>；請勿上傳含他人隱私的內容）</span>
-          </label>
-        )}
+        <ServiceOptions options={([
+          cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts },
+          aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi },
+          googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle },
+          vtAvailable && { key: 'vt', label: 'VirusTotal 病毒掃描', sends: ['網域'], to: 'VirusTotal（只查已有的掃描紀錄）', checked: queryVt, onChange: setQueryVt },
+        ].filter(Boolean) as ServiceOption[])} />
         <label className="flex min-h-11 items-start gap-3">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={consentB}
             onChange={(e) => { setConsentB(e.target.checked); if (!e.target.checked) setConsentC(false) }} />

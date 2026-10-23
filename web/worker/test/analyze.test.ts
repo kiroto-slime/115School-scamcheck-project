@@ -41,24 +41,47 @@ describe('文字查核', () => {
     expect((await call('/api/analyze/text', { body: { text: 'a'.repeat(10_001) } })).status).toBe(422)
   })
 
-  it('沒有金鑰時是 Mock 模式，不產生假查核資料', async () => {
+  it('不需要 Cofacts 憑證就會查詢；沒有 Gemini 金鑰時 AI 停用', async () => {
     const h = await call('/api/health')
-    expect(h.json.modes).toMatchObject({ cofacts: 'mock', ai: 'disabled' })
+    expect(h.json.modes).toMatchObject({ cofacts: 'live', ai: 'disabled' })
     const r = await call('/api/analyze/text', { body: { text: SCAM } })
-    expect(r.json.cofacts.status).toBe('not_configured')
-    expect(r.json.cofacts.matches).toEqual([])
-    expect(r.json.cofacts.message).toContain('尚無查核資料')
+    expect(r.json.cofacts).toMatchObject({ status: 'not_found', mode: 'live', matches: [] })
     expect(r.json.ai.status).toBe('disabled')
+  })
+
+  it('使用者不勾選 Cofacts 就不送出', async () => {
+    const calls = mockFetch(() => new Response('{}'))
+    const r = await call('/api/analyze/text', { body: { text: SCAM, query_cofacts: false } })
+    expect(r.json.cofacts.status).toBe('skipped')
+    expect(calls.length).toBe(0)
+  })
+
+  it('管理員關閉 Cofacts：不查詢、不產生假查核資料', async () => {
+    await env.DB.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('cofacts_enabled', 'false', '2026-01-01')").run()
+    const calls = mockFetch(() => new Response('{}'))
+    expect((await call('/api/health')).json.modes.cofacts).toBe('off')
+    const r = await call('/api/analyze/text', { body: { text: SCAM } })
+    expect(r.json.cofacts).toMatchObject({ status: 'disabled', mode: 'off', matches: [] })
+    expect(calls.length).toBe(0)
   })
 })
 
 describe('Cofacts', () => {
   const withKeys = { ...env, ...COFACTS } as Env
-  it('查無資料：顯示尚無查核資料，風險不因此降低', async () => {
-    mockFetch(() => new Response(JSON.stringify({ data: { ListArticles: { edges: [] } } })))
-    const r = await cofactsLookup(withKeys, SCAM, 500)
+  it('查無資料：顯示尚無查核資料；沒有憑證時不帶憑證 header', async () => {
+    const calls = mockFetch(() => new Response(JSON.stringify({ data: { ListArticles: { edges: [] } } })))
+    const r = await cofactsLookup(env, SCAM, 500)
     expect(r.status).toBe('not_found')
     expect(r.message).toBe('尚無查核資料')
+    const h = calls[0].init!.headers as Record<string, string>
+    expect(h['x-app-id']).toBeUndefined()
+    expect(h['x-app-secret']).toBeUndefined()
+  })
+
+  it('有設定憑證時自動帶上', async () => {
+    const calls = mockFetch(() => new Response(JSON.stringify({ data: { ListArticles: { edges: [] } } })))
+    await cofactsLookup(withKeys, SCAM, 500)
+    expect(calls[0].init!.headers).toMatchObject({ 'x-app-id': 'id', 'x-app-secret': 'secret' })
   })
 
   it('伺服器錯誤：重試後回報失敗，其他分析照常', async () => {
@@ -70,7 +93,7 @@ describe('Cofacts', () => {
 
   it('找到相似內容時保留來源網址與授權，送出前已遮蔽個資', async () => {
     const calls = mockFetch(() => new Response(JSON.stringify({ data: { ListArticles: { edges: [{ score: 9, node: { id: 'abc123', text: SCAM, articleReplies: [{ reply: { type: 'RUMOR', text: '這是詐騙' } }] } }] } } })))
-    const r = await call('/api/analyze/text', { body: { text: SCAM + ' 電話0912345678' }, envOverride: COFACTS })
+    const r = await call('/api/analyze/text', { body: { text: SCAM + ' 電話0912345678' } })
     expect(r.json.cofacts.status).toBe('found')
     expect(r.json.cofacts.matches[0]).toMatchObject({ url: 'https://cofacts.tw/article/abc123', reply_type: 'RUMOR' })
     expect(String(calls[0].init?.body)).not.toContain('0912345678')
@@ -101,7 +124,7 @@ describe('Gemini', () => {
   it('沒勾選就完全不送出', async () => {
     const calls = mockFetch(() => geminiReply(GOOD))
     const r = await call('/api/analyze/text', { body: { text: SCAM, use_ai: false }, envOverride: GEMINI })
-    expect(calls.length).toBe(0)
+    expect(calls.filter((c) => c.url.includes('googleapis.com'))).toEqual([])
     expect(r.json.ai.status).toBe('not_requested')
   })
 

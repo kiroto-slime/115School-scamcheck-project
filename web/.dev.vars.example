@@ -1,0 +1,10 @@
+# 本機開發用的秘密值範本：複製成 .dev.vars 後填入（.dev.vars 不會進 Git）
+# 正式網站的值請在 Cloudflare 後台 Workers → scamcheck → Settings → Variables and Secrets 設定
+ADMIN_PASSWORD=請改成至少12字元的密碼
+GEMINI_API_KEY=
+# 選填：Google Cloud 金鑰（Safe Browsing、Fact Check Tools）與 VirusTotal 金鑰
+GOOGLE_CLOUD_API_KEY=
+VIRUSTOTAL_API_KEY=
+# 選填：Cofacts 不需要憑證也能查詢
+COFACTS_APP_ID=
+COFACTS_APP_SECRET=

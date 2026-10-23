@@ -9,7 +9,8 @@ import { admin } from './routes/admin'
 import { analyze } from './routes/analyze'
 import { research } from './routes/research'
 import { RULE_VERSION } from './rules'
-import { aiMode, cofactsLive, getSettings, LIMITS } from './settings'
+import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
+import { tw165Meta } from './urlcheck'
 import { HttpError } from './util'
 
 export const app = new Hono<AppEnv>().basePath('/api')
@@ -22,14 +23,18 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'no-referrer')
 })
 
-app.get('/health', (c) => {
+app.get('/health', async (c) => {
   const s = c.get('settings')
+  const tw165 = await tw165Meta(c.env)
   return c.json({
     status: 'ok',
     version: c.env.APP_VERSION,
     rule_version: RULE_VERSION,
     modes: {
-      cofacts: cofactsLive(c.env) ? 'live' : 'mock',
+      cofacts: cofactsMode(s),
+      google: googleMode(c.env),
+      virustotal: virusTotalMode(c.env),
+      tw165: { available: tw165.available, updated_at: tw165.updated_at ?? null, count: tw165.count ?? 0 },
       ai: aiMode(c.env),
       ai_model: aiMode(c.env) === 'gemini' ? s.gemini_model : null,
       research_mode: s.research_mode,

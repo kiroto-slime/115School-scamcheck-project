@@ -7,7 +7,7 @@
  * 修改規則時請同步更新 RULE_VERSION 與 worker/test/rules.test.ts。
  */
 
-export const RULE_VERSION = 'rules-2026.10-v0.1'
+export const RULE_VERSION = 'rules-2026.10-v0.2'
 export type RiskLevel = '低' | '中' | '高' | '資訊不足'
 const MIN_TEXT_CHARS = 12
 
@@ -105,6 +105,15 @@ export interface SourceSignal {
   match_type: string
 }
 
+/** 網址安全檢查的結果（165 名單、Google 安全瀏覽、VirusTotal） */
+export interface UrlSignals {
+  tw165Listed: number
+  safeBrowsingThreats: number
+  virusTotalMalicious: number
+}
+const NO_URL_SIGNALS: UrlSignals = { tw165Listed: 0, safeBrowsingThreats: 0, virusTotalMalicious: 0 }
+const LISTED_URL_ACTION = '不要開啟訊息中的網址、不要輸入任何資料；有疑問可撥 165 反詐騙諮詢專線查證。'
+
 /** 全形轉半形、去除多餘空白，降低規避字元的影響 */
 export function normalize(text: string): string {
   return (text || '').normalize('NFKC').replace(/\s+/g, ' ').trim()
@@ -143,7 +152,7 @@ const byCodePoint = (a: string, b: string) => {
   return x.length - y.length
 }
 
-export function analyzeText(text: string, sourceSignals: SourceSignal[] = []): RiskResult {
+export function analyzeText(text: string, sourceSignals: SourceSignal[] = [], urlSignals: UrlSignals = NO_URL_SIGNALS): RiskResult {
   const clean = normalize(text)
   const features: Feature[] = []
   for (const r of RULES) {
@@ -180,11 +189,26 @@ export function analyzeText(text: string, sourceSignals: SourceSignal[] = []): R
       basis.push(`Cofacts 有${exact ? '相同' : '相似'}訊息被查核為含有不實訊息（相似不等於同一事件）`)
     }
   }
-  score = Math.min(score, 100)
+  // 網址訊號：官方名單與資安服務的判定，加分較重
+  let urlBoost = 0
+  if (urlSignals.tw165Listed > 0) {
+    urlBoost += 40
+    basis.push('網址列在警政署 165 涉詐網站名單中')
+  }
+  if (urlSignals.safeBrowsingThreats > 0) {
+    urlBoost += 30
+    basis.push('Google 安全瀏覽將網址標示為疑似不安全')
+  }
+  // 只有 1 個引擎判定惡意常是誤判，2 個以上才加分
+  if (urlSignals.virusTotalMalicious >= 2) {
+    urlBoost += 20
+    basis.push(`VirusTotal 有 ${urlSignals.virusTotalMalicious} 個資安引擎判定網域惡意`)
+  }
+  score = Math.min(score + urlBoost, 100)
 
   let level: RiskLevel
   let scoreOut: number | null
-  if ([...clean].length < MIN_TEXT_CHARS && !features.length) {
+  if ([...clean].length < MIN_TEXT_CHARS && !features.length && !urlBoost) {
     level = '資訊不足'
     scoreOut = null
     basis.push('內容過短，無法判斷。')
@@ -198,6 +222,7 @@ export function analyzeText(text: string, sourceSignals: SourceSignal[] = []): R
   }
 
   const actions = features.filter((f) => SAFE_ACTIONS[f.feature_id]).map((f) => SAFE_ACTIONS[f.feature_id])
+  if (urlBoost) actions.unshift(LISTED_URL_ACTION)
   actions.push(GENERAL_ACTION)
   return { risk_level: level, risk_score: scoreOut, features, basis, safe_actions: actions, rule_version: RULE_VERSION, tags: features.map((f) => f.feature_id) }
 }

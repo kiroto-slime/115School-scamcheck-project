@@ -11,10 +11,12 @@ test('主要查核流程：輸入文字 → 結果頁', async ({ page }) => {
   await noHorizontalOverflow(page)
   await page.getByRole('link', { name: '開始防詐查核' }).click()
   await page.getByLabel(/貼上可疑訊息/).fill('【物流通知】您的包裹地址錯誤，請於24小時內點擊 https://bit.ly/abc 更新資料並支付手續費。')
+  // 不送 Cofacts：測試結果才不會受外部資料影響
+  await page.getByLabel(/送至 Cofacts/).uncheck()
   await page.getByRole('button', { name: '開始查核' }).click()
   await expect(page.getByRole('heading', { name: '查核結果', exact: true })).toBeVisible()
   await expect(page.getByText('風險等級：高').first()).toBeVisible()
-  await expect(page.getByText(/尚無查核資料/)).toBeVisible()
+  await expect(page.getByText(/未查詢（使用者選擇不送出/)).toBeVisible()
   await noHorizontalOverflow(page)
   await page.getByRole('button', { name: '有幫助' }).click()
   await expect(page.getByText('感謝回饋！')).toBeVisible()

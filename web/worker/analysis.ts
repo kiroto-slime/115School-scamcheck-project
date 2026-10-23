@@ -1,9 +1,11 @@
-/** 串接 Cofacts → 規則分析 → Gemini → 只儲存衍生結果（不存原文） */
-import { cofactsLookup, LICENSE, skippedLookup } from './cofacts'
+/** 串接 Cofacts／網址安全檢查／Google 事實查核 → 規則分析 → Gemini → 只儲存衍生結果（不存原文、不存完整網址） */
+import { cofactsLookup, disabledLookup, LICENSE, skippedLookup } from './cofacts'
+import { factCheckLookup, FactCheckResult } from './factcheck'
 import { AIMedia, disabledResult, Gemini, notRequestedResult } from './gemini'
 import { analyzeText, redactPii } from './rules'
 import { AppSettings, aiMode, isFormal } from './settings'
 import { audit, bool, HttpError, newId, nowIso, parseJson } from './util'
+import { ExternalUrlResult, extractUrls, safeBrowsingLookup, tw165Lookup, virusTotalLookup, vtMaliciousCount } from './urlcheck'
 
 export async function hasActiveConsent(db: D1Database, researchId: string | null | undefined, purpose: string): Promise<boolean> {
   if (!researchId) return false
@@ -19,6 +21,9 @@ export interface AnalyzeInput {
   mediaType: 'text' | 'image' | 'video'
   researchId?: string | null
   queryCofacts: boolean
+  /** Google 安全瀏覽＋事實查核 */
+  queryGoogle?: boolean
+  queryVirusTotal?: boolean
   useAi: boolean
   aiMedia?: AIMedia[]
   mediaInfo?: Record<string, unknown>
@@ -30,23 +35,53 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
   const consentResearch = s.research_collection_enabled && (await hasActiveConsent(db, inp.researchId, 'research'))
   const consentSecondary = consentResearch && (await hasActiveConsent(db, inp.researchId, 'secondary_use'))
 
-  // 1. Cofacts：只送出遮蔽個資後的文字
-  const lookup = inp.queryCofacts && inp.text.trim()
-    ? await cofactsLookup(env, redactPii(inp.text), s.cofacts_daily_limit, { fetcher: inp.fetcher })
-    : skippedLookup(env)
-  // 2. 規則分析
-  const risk = analyzeText(inp.text, lookup.matches.map((m) => ({ reply_type: m.reply_type, match_type: m.match_type })))
+  const redacted = redactPii(inp.text)
+  const urls = extractUrls(inp.text)
+  const opts = { fetcher: inp.fetcher }
+  const notRequested = (status: 'not_requested' | 'disabled', message: string): ExternalUrlResult => ({ status, threats: [], message })
+  // 1. 外部查詢同時進行；只有使用者勾選的才送出，文字一律先遮蔽個資
+  const [lookup, tw165, safeBrowsing, virusTotal, factCheck] = await Promise.all([
+    !s.cofacts_enabled
+      ? disabledLookup()
+      : inp.queryCofacts && inp.text.trim()
+        ? cofactsLookup(env, redacted, s.cofacts_daily_limit, opts)
+        : skippedLookup(),
+    tw165Lookup(env, urls),
+    !env.GOOGLE_CLOUD_API_KEY
+      ? notRequested('disabled', '網站尚未設定 Google 金鑰。')
+      : inp.queryGoogle
+        ? safeBrowsingLookup(env, urls, s.google_daily_limit, opts)
+        : notRequested('not_requested', '你選擇不送出給 Google。'),
+    !env.VIRUSTOTAL_API_KEY
+      ? notRequested('disabled', '網站尚未設定 VirusTotal 金鑰。')
+      : inp.queryVirusTotal
+        ? virusTotalLookup(env, urls, s.virustotal_daily_limit, opts)
+        : notRequested('not_requested', '你沒有勾選 VirusTotal 檢查。'),
+    !env.GOOGLE_CLOUD_API_KEY
+      ? ({ status: 'disabled', items: [], message: '網站尚未設定 Google 金鑰。' } satisfies FactCheckResult)
+      : inp.queryGoogle && inp.text.trim()
+        ? factCheckLookup(env, redacted, s.google_daily_limit, opts)
+        : ({ status: 'not_requested', items: [], message: '未送出給 Google。' } satisfies FactCheckResult),
+  ])
+  // 2. 規則分析（加上查核與網址訊號）
+  const risk = analyzeText(
+    inp.text,
+    lookup.matches.map((m) => ({ reply_type: m.reply_type, match_type: m.match_type })),
+    { tw165Listed: tw165.matches.length, safeBrowsingThreats: safeBrowsing.threats.length, virusTotalMalicious: vtMaliciousCount(virusTotal) },
+  )
   // 3. Gemini：只有使用者勾選時才送出
   const ai = aiMode(env) !== 'gemini'
     ? disabledResult()
     : !inp.useAi
       ? notRequestedResult()
-      : await new Gemini(env, s.gemini_model, inp.fetcher).analyze(redactPii(inp.text), inp.aiMedia ?? [], s.gemini_daily_limit)
+      : await new Gemini(env, s.gemini_model, inp.fetcher).analyze(redacted, inp.aiMedia ?? [], s.gemini_daily_limit)
 
   const now = nowIso()
   const result = {
     media: inp.mediaInfo ?? {},
     cofacts: { status: lookup.status, mode: lookup.mode, message: lookup.message, license: LICENSE, matches: lookup.matches },
+    fact_check: factCheck,
+    url_checks: { url_count: urls.length, tw165, safe_browsing: safeBrowsing, virustotal: virusTotal },
     features: risk.features,
     basis: risk.basis,
     safe_actions: risk.safe_actions,
@@ -54,7 +89,8 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
     checked_at: now,
   }
   const analysisId = newId()
-  const status = lookup.status !== 'error' && ai.status !== 'error' ? 'completed' : 'completed_with_source_error'
+  const anyError = [lookup.status, ai.status, safeBrowsing.status, virusTotal.status, factCheck.status].includes('error')
+  const status = anyError ? 'completed_with_source_error' : 'completed'
   const stmts = [
     db.prepare(`INSERT INTO analysis_records (analysis_id, research_id_nullable, created_at, media_type, source_count, risk_score_nullable, risk_level,
       risk_tags_json, analysis_status, rule_version, external_ai_used, consent_research, consent_secondary_use, is_demo, result_json, expires_at)
@@ -66,11 +102,21 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
       consentResearch ? null : nowIso(s.temp_retention_hours * 3600_000),
     ),
   ]
-  const src = (m: { match_type: string; title?: string | null; url?: string | null; reply_type?: string | null }, license: string | null) =>
+  const src = (provider: string, status: string, m: { match_type: string; title?: string | null; url?: string | null; reply_type?: string | null }, license: string | null) =>
     db.prepare(`INSERT INTO source_results (source_result_id, analysis_id, provider, result_status, match_type, source_title, source_url, reply_type, checked_at, license_tag)
-      VALUES (?, ?, 'cofacts', ?, ?, ?, ?, ?, ?, ?)`).bind(newId(), analysisId, lookup.status, m.match_type, m.title ?? null, m.url ?? null, m.reply_type ?? null, now, license)
-  if (lookup.matches.length) for (const m of lookup.matches) stmts.push(src(m, LICENSE))
-  else stmts.push(src({ match_type: 'none' }, lookup.status === 'not_found' ? LICENSE : null))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(newId(), analysisId, provider, status, m.match_type, m.title ?? null, m.url ?? null, m.reply_type ?? null, now, license)
+  if (lookup.matches.length) for (const m of lookup.matches) stmts.push(src('cofacts', lookup.status, m, LICENSE))
+  else stmts.push(src('cofacts', lookup.status, { match_type: 'none' }, lookup.status === 'not_found' ? LICENSE : null))
+  // 其他來源只記狀態（不記使用者的網址）；有網址時才記網址檢查
+  if (urls.length) {
+    stmts.push(src('tw165', tw165.status, { match_type: tw165.matches.length ? 'listed' : 'none' }, '政府資料開放授權條款-第1版'))
+    if (!['disabled', 'not_requested'].includes(safeBrowsing.status)) stmts.push(src('safe_browsing', safeBrowsing.status, { match_type: safeBrowsing.threats.length ? 'threat' : 'none' }, null))
+    if (!['disabled', 'not_requested'].includes(virusTotal.status)) stmts.push(src('virustotal', virusTotal.status, { match_type: virusTotal.threats.length ? 'threat' : 'none' }, null))
+  }
+  if (!['disabled', 'not_requested'].includes(factCheck.status)) {
+    if (factCheck.items.length) for (const it of factCheck.items) stmts.push(src('google_factcheck', factCheck.status, { match_type: 'similar', title: it.claim.slice(0, 80), url: it.url, reply_type: it.rating }, null))
+    else stmts.push(src('google_factcheck', factCheck.status, { match_type: 'none' }, null))
+  }
   await db.batch(stmts)
   const rec = await db.prepare('SELECT * FROM analysis_records WHERE analysis_id = ?').bind(analysisId).first<AnalysisRow>()
   return serialize(rec!)

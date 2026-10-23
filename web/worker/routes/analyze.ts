@@ -13,6 +13,8 @@ const rid = z.string().regex(/^R[A-Z0-9]{12}$/).nullish()
 const common = {
   research_id: rid,
   query_cofacts: z.boolean().default(true),
+  query_google: z.boolean().default(true),
+  query_virustotal: z.boolean().default(false),
   use_ai: z.boolean().default(true),
 }
 const extraText = z.string().max(LIMITS.maxTextChars).default('')
@@ -27,7 +29,7 @@ analyze.post('/analyze/text', async (c) => {
   await rateLimit(c, 'ANALYZE_LIMITER')
   const b = await readBody(c, z.object({ text: z.string().min(1).max(LIMITS.maxTextChars), ...common }))
   return c.json(await runAnalysis(c.env, c.get('settings'), {
-    text: b.text, mediaType: 'text', researchId: b.research_id, queryCofacts: b.query_cofacts, useAi: b.use_ai,
+    text: b.text, mediaType: 'text', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, useAi: b.use_ai,
   }))
 })
 
@@ -47,7 +49,7 @@ analyze.post('/analyze/image', async (c) => {
   if (!aiOn && !b.extra_text.trim())
     return c.json({ needs_manual_text: true, media: { notes }, message: '沒有使用 AI 時無法讀取圖片內容，請在「補充文字」輸入圖片中的文字' + (aiMode(c.env) === 'gemini' ? '（或勾選使用 AI 分析）。' : '。') })
   return c.json(await runAnalysis(c.env, c.get('settings'), {
-    text: b.extra_text, mediaType: 'image', researchId: b.research_id, queryCofacts: b.query_cofacts, useAi: b.use_ai,
+    text: b.extra_text, mediaType: 'image', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, useAi: b.use_ai,
     aiMedia: aiOn ? [{ kind: 'image', mime: b.mime_type, base64: b.image_base64 }] : [],
     mediaInfo: { notes, used_manual_text: Boolean(b.extra_text.trim()), ocr_status: aiOn ? 'gemini' : 'unavailable' },
   }))
@@ -112,7 +114,7 @@ analyze.post('/analyze/video', async (c) => {
       if (!b.extra_text.trim()) return c.json({ needs_manual_text: true, media: { notes }, message: '請在「補充文字」輸入影片中的文字或旁白重點。' })
     }
     return c.json(await runAnalysis(env, s, {
-      text: b.extra_text, mediaType: 'video', researchId: b.research_id, queryCofacts: b.query_cofacts, useAi: Boolean(ref) && b.use_ai,
+      text: b.extra_text, mediaType: 'video', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, useAi: Boolean(ref) && b.use_ai,
       aiMedia: ref && b.use_ai ? [{ kind: 'video', mime: ref.mime, uri: ref.uri }] : [],
       mediaInfo: { notes, used_manual_text: Boolean(b.extra_text.trim()), duration_seconds: b.duration_seconds ?? null, ocr_status: ref ? 'gemini' : 'unavailable' },
     }))

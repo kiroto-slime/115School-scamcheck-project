@@ -48,6 +48,8 @@ export default function Result() {
   }
 
   const c = data.cofacts
+  const u = data.url_checks
+  const fc = data.fact_check
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -81,7 +83,34 @@ export default function Result() {
         )}
       </Section>
 
-      <Section step={2} title="規則分析結果">
+      {fc && !['disabled', 'not_requested'].includes(fc.status) && (
+        <Section title="Google 事實查核搜尋">
+          <p className={fc.status === 'error' ? 'text-red-700' : 'text-slate-700'}>{fc.message}</p>
+          {fc.items.map((it) => (
+            <div key={it.url} className="rounded-xl border border-slate-200 p-3 text-sm">
+              <p className="break-words">{it.claim}</p>
+              <p className="text-slate-600">{it.publisher}{it.rating && `：${it.rating}`}{it.date && ` · ${it.date}`}</p>
+              <a href={it.url} target="_blank" rel="noopener noreferrer nofollow">查看查核報告 ↗</a>
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {u && (
+        <Section step={2} title="網址安全檢查">
+          {u.url_count === 0 ? <p className="text-slate-700">訊息中沒有網址。</p> : (
+            <ul className="space-y-2">
+              <UrlRow name="165 涉詐網站名單（警政署）" status={u.tw165.status === 'listed' ? 'found' : u.tw165.status === 'not_listed' ? 'clean' : u.tw165.status} message={u.tw165.message}
+                items={u.tw165.matches.map((m) => `${m.host_masked}：${m.lists.join('、')}${m.category ? `（${m.category}）` : ''}${m.month ? ` · ${m.month}` : ''}`)} />
+              <UrlRow name="Google 安全瀏覽" status={u.safe_browsing.status} message={u.safe_browsing.message} items={u.safe_browsing.threats.map((t) => `${t.host_masked}：${t.detail}`)} />
+              <UrlRow name="VirusTotal" status={u.virustotal.status} message={u.virustotal.message} items={u.virustotal.threats.map((t) => `${t.host_masked}：${t.detail}`)} />
+            </ul>
+          )}
+          <p className="text-xs text-slate-500">網站不會開啟你訊息中的網址。165 名單來自政府資料開放平臺（政府資料開放授權條款）；Google 安全瀏覽結果由 Google 提供，可能有誤判或漏判。</p>
+        </Section>
+      )}
+
+      <Section step={3} title="規則分析結果">
         {data.features.length === 0 ? (
           <p className="text-slate-700">未偵測到規則庫中的已知風險特徵。這不代表訊息安全。</p>
         ) : (
@@ -98,11 +127,11 @@ export default function Result() {
         )}
       </Section>
 
-      <Section step={3} title="AI 分析（Google Gemini）">
+      <Section step={4} title="AI 分析（Google Gemini）">
         <AiBlock ai={data.ai} />
       </Section>
 
-      <Section step={4} title="綜合風險指數">
+      <Section step={5} title="綜合風險指數">
         <div className="flex flex-wrap items-end gap-4">
           <p className="text-4xl font-bold text-slate-900">{data.risk_score ?? '—'}<span className="text-base font-normal text-slate-500"> / 100</span></p>
           <RiskBadge level={data.risk_level} />
@@ -116,17 +145,17 @@ export default function Result() {
         <Alert kind="info">{data.score_disclaimer}</Alert>
       </Section>
 
-      <Section step={5} title="建議的安全行動">
+      <Section step={6} title="建議的安全行動">
         <ul className="list-disc space-y-1 pl-5">{data.safe_actions.map((a) => <li key={a}>{a}</li>)}</ul>
       </Section>
 
-      <Section step={6} title="查核來源與時間">
+      <Section step={7} title="查核來源與時間">
         <p className="text-sm">查核時間：{formatTime(data.checked_at)}</p>
-        <p className="text-sm">規則版本：{data.rule_version} · Cofacts 模式：{c.mode === 'live' ? 'Live' : 'Demo（未查詢）'} · 外部 AI：{data.external_ai_used ? '有' : '未使用'}</p>
+        <p className="text-sm">規則版本：{data.rule_version} · Cofacts：{c.mode === 'live' ? (c.status === 'skipped' ? '未送出' : '已查詢') : '已關閉'} · 外部 AI：{data.external_ai_used ? '有' : '未使用'}</p>
         {c.matches.length === 0 && <p className="text-sm text-slate-600">本次沒有可引用的外部查核來源。</p>}
       </Section>
 
-      <Section step={7} title="這次結果對你有幫助嗎？">
+      <Section step={8} title="這次結果對你有幫助嗎？">
         {fb === 'sent' ? <Alert kind="success">感謝回饋！</Alert> : (
           <div className="flex gap-2">
             <button className="btn-secondary flex-1 sm:flex-none" onClick={() => sendFeedback(true)}>有幫助</button>
@@ -138,5 +167,27 @@ export default function Result() {
 
       <Link to="/check" className="btn-primary no-underline hover:no-underline">查核另一則訊息</Link>
     </div>
+  )
+}
+
+const URL_STATUS: Record<string, [string, string]> = {
+  found: ['⚠ 有疑慮', 'bg-red-100 text-red-800'],
+  clean: ['未發現', 'bg-emerald-100 text-emerald-800'],
+  not_requested: ['未勾選', 'bg-slate-100 text-slate-600'],
+  disabled: ['未設定', 'bg-slate-100 text-slate-600'],
+  no_url: ['沒有網址', 'bg-slate-100 text-slate-600'],
+  rate_limited: ['已達上限', 'bg-amber-100 text-amber-900'],
+  unavailable: ['暫停', 'bg-amber-100 text-amber-900'],
+  error: ['查詢失敗', 'bg-amber-100 text-amber-900'],
+}
+
+function UrlRow({ name, status, message, items }: { name: string; status: string; message: string; items: string[] }) {
+  const [label, cls] = URL_STATUS[status] ?? [status, 'bg-slate-100 text-slate-600']
+  return (
+    <li className="rounded-xl border border-slate-200 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{name}</span><span className={`pill ${cls}`}>{label}</span></div>
+      {status !== 'disabled' && status !== 'not_requested' && <p className="mt-1 text-sm text-slate-600">{message}</p>}
+      {items.map((t) => <p key={t} className="mt-1 break-words text-sm text-red-800">{t}</p>)}
+    </li>
   )
 }

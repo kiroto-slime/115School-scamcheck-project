@@ -36,7 +36,10 @@ export interface Health {
   version: string
   rule_version: string
   modes: {
-    cofacts: 'live' | 'mock'
+    cofacts: 'live' | 'off'
+    google: 'live' | 'off'
+    virustotal: 'live' | 'off'
+    tw165: { available: boolean; updated_at: string | null; count: number }
     ai: 'disabled' | 'gemini'
     ai_model: string | null
     research_mode: 'simulation' | 'formal'
@@ -78,6 +81,13 @@ export interface AnalysisResult {
   consent_research: boolean
   score_disclaimer: string
   cofacts: { status: string; mode: string; message: string; license: string; matches: CofactsMatch[] }
+  fact_check?: { status: string; message: string; items: { claim: string; publisher: string; rating: string; url: string; date: string | null }[] }
+  url_checks?: {
+    url_count: number
+    tw165: { status: string; message: string; updated_at: string | null; matches: { host_masked: string; lists: string[]; month: string; category: string }[] }
+    safe_browsing: UrlCheck
+    virustotal: UrlCheck
+  }
   features: Feature[]
   basis: string[]
   safe_actions: string[]
@@ -89,6 +99,8 @@ export interface AnalysisResult {
   checked_at: string
   extracted_text_preview?: string
 }
+
+export interface UrlCheck { status: string; message: string; threats: { host_masked: string; detail: string }[] }
 
 export interface NeedsManualText {
   needs_manual_text: true
