@@ -2,15 +2,20 @@
  * 下載警政署 165 開放資料（涉詐網站名單），切成 256 個小檔放進 public/tw165/。
  * - 建置（npm run build）時執行：每次部署都會抓最新名單。
  * - Worker 查詢時只讀其中一個小檔，不寫資料庫、不吃 CPU。
- * - 下載失敗時不讓部署失敗：寫入 available:false，網站會顯示「名單暫時無法使用」。
+ * - Cloudflare 建置主機在國外，常連不到政府網站：下載成功時會更新 snapshot/tw165.json.gz（要提交到 Git），
+ *   下載失敗時改用這份備份。連備份都沒有才寫入 available:false。
+ * 更新備份：在臺灣的電腦執行 npm run data:165，再提交 snapshot/tw165.json.gz。
  * 用法：node scripts/build-tw165.mjs [--force]（本機 24 小時內已下載過就略過）
  */
 import { createHash } from 'node:crypto'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'tw165')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const OUT = join(ROOT, 'public', 'tw165')
+const SNAPSHOT = join(ROOT, 'snapshot', 'tw165.json.gz')
 const SOURCES = [
   {
     code: 's', // 遭停止解析涉詐網站（刑事警察局依法停止解析）
@@ -55,6 +60,7 @@ const shardOf = (host) => createHash('sha256').update(host).digest('hex').slice(
 const cells = (line) => line.split(',').map((x) => x.replace(/^"|"$/g, '').trim())
 
 async function download(src) {
+  if (process.env.TW165_OFFLINE) throw new Error('離線測試')
   const r = await fetch(src.url, { signal: AbortSignal.timeout(90_000), headers: { 'User-Agent': 'scamcheck-build' } })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const text = (await r.text()).replace(/^﻿/, '')
@@ -98,7 +104,18 @@ async function main() {
     }
   }
 
-  if (!map.size && existsSync(metaPath) && JSON.parse(readFileSync(metaPath, 'utf8')).available) {
+  let updatedAt = new Date().toISOString()
+  if (sources.length === SOURCES.length) {
+    // 兩份都下載成功：更新備份
+    mkdirSync(dirname(SNAPSHOT), { recursive: true })
+    writeFileSync(SNAPSHOT, gzipSync(JSON.stringify({ updated_at: updatedAt, sources, domains: [...map] }), { level: 9 }))
+  } else if (existsSync(SNAPSHOT)) {
+    const snap = JSON.parse(gunzipSync(readFileSync(SNAPSHOT)).toString('utf8'))
+    for (const [h, v] of snap.domains) if (!map.has(h)) map.set(h, v)
+    for (const s of snap.sources) if (!sources.some((x) => x.code === s.code)) sources.push(s)
+    updatedAt = snap.updated_at
+    console.warn(`[165] 有資料下載失敗，改用備份（${snap.updated_at}）`)
+  } else if (!map.size && existsSync(metaPath) && JSON.parse(readFileSync(metaPath, 'utf8')).available) {
     console.warn('[165] 全部下載失敗，保留上次的名單')
     return
   }
@@ -114,7 +131,7 @@ async function main() {
     const k = i.toString(16).padStart(2, '0')
     writeFileSync(join(OUT, `${k}.json`), JSON.stringify(shards.get(k) ?? {}))
   }
-  const meta = { available: map.size > 0, updated_at: new Date().toISOString(), count: map.size, sources }
+  const meta = { available: map.size > 0, updated_at: updatedAt, count: map.size, sources }
   writeFileSync(metaPath, JSON.stringify(meta))
   console.log(`[165] 完成：${map.size} 個網域（${sources.length}/${SOURCES.length} 份資料）`)
 }
