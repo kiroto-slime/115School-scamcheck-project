@@ -128,7 +128,7 @@ describe('速度', () => {
     })
     const r = await analyzeWithFallback(E, S([{ id: 'slow-1', daily: 5, rpm: 5, media: true }, { id: 'b-2', daily: 5, rpm: 5, media: true }]), '你好', [])
     expect(r).toMatchObject({ status: 'ok', model: 'b-2' })
-    expect(r.fallback_note).toContain('回應太慢')
+    expect(r.fallback_note).toContain('超過 3 分鐘沒有回應')
   })
 })
 

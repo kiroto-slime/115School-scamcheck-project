@@ -157,7 +157,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         continue
       }
       if (e.status === 408) {
-        skipped.push(`${modelLabel(m.id)} 回應太慢`)
+        skipped.push(`${modelLabel(m.id)} 超過 3 分鐘沒有回應`)
         continue
       }
       // Google 那邊暫時太忙（503 high demand 等）：換下一個模型

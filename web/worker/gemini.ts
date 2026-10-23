@@ -114,7 +114,7 @@ function parseJsonLoose(text: string): Record<string, unknown> {
 
 export class Gemini {
   // 預設用箭頭函式包住 fetch：Cloudflare 直接以物件方法呼叫 fetch 會出現 Illegal invocation
-  constructor(private env: Env, private model: string, private fetcher: typeof fetch = (input, init) => fetch(input, init), private retryDelayMs = 1500, private timeoutMs = 45_000) {}
+  constructor(private env: Env, private model: string, private fetcher: typeof fetch = (input, init) => fetch(input, init), private retryDelayMs = 1500, private timeoutMs = 180_000) {}
 
   private headers(extra: Record<string, string> = {}) {
     return { 'x-goog-api-key': this.env.GEMINI_API_KEY ?? '', ...extra }
@@ -126,7 +126,7 @@ export class Gemini {
       try {
         r = await this.fetcher(INTERACTIONS, {
           method: 'POST', headers: this.headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
-          // 每個模型最多等 45 秒；太慢就由 aimodels.ts 換下一個模型
+          // 不限制思考時間；只在 3 分鐘都沒回應（可能連線卡住）時才換下一個模型
           signal: AbortSignal.timeout(this.timeoutMs),
         })
       } catch (e) {

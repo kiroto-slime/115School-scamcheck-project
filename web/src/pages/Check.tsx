@@ -167,7 +167,7 @@ export default function Check() {
         query_virustotal: vtAvailable && queryVt && !vtQ.blocked,
       }
       if (mode === 'text') {
-        setBusy(aiOn ? '分析中（含 Gemini AI，約需 5–30 秒）…' : '分析文字與查詢來源中…')
+        setBusy(aiOn ? 'AI 分析中，內容較長時可能需要 1～2 分鐘，請稍候…' : '分析文字與查詢來源中…')
         result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) })
       } else {
         const ai = aiOn
@@ -175,7 +175,7 @@ export default function Check() {
         if (mode === 'image') {
           setBusy('處理圖片中…')
           const img = await prepareImage(file!)
-          setBusy(ai ? '上傳並交給 Gemini 判讀圖片（約需 5–30 秒）…' : '分析補充文字中…')
+          setBusy(ai ? 'AI 判讀圖片中，可能需要 1～2 分鐘，請稍候…' : '分析補充文字中…')
           result = await postJson<AnalysisResult | NeedsManualText>('/api/analyze/image', { image_base64: img.base64, mime_type: img.mime, ...common })
         } else {
           let mediaRef: string | null = null
