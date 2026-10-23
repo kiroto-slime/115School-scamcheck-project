@@ -1,6 +1,14 @@
 // ===== 小方塊跑酷：感染開場 → 2D 跑酷 → 分數升級 → 結算 =====
 const $ = s => document.querySelector(s);
 
+// 使用外部程式初始化偏好，遵守網站僅允許同源腳本的限制。
+try {
+  const saved = localStorage.getItem('block-parkour-theme');
+  document.documentElement.dataset.theme = saved === 'dark' || saved === 'light'
+    ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+} catch (_) { document.documentElement.dataset.theme = 'light'; }
+document.documentElement.dataset.largeText = 'false';
+
 const CLEAR_SCORE = 1000;
 
 // ----- 簡易音效（Web Audio，不需要音檔）-----

@@ -4,3 +4,10 @@
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+
+# 只有教學遊戲可由同一網站內嵌，其他頁面仍禁止內嵌。
+/games/block-parkour/*
+  ! X-Frame-Options
+  ! Content-Security-Policy
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'

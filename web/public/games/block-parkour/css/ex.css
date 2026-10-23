@@ -137,7 +137,7 @@
 .ex-layer[hidden], .ex-modal[hidden] { display: none; }
 
 #ex-game {
-  padding: 8px;
+  padding: 2px;
   gap: 0;
   overflow: hidden;
 }
@@ -145,7 +145,7 @@
 #game-stage {
   container-type: inline-size;
   position: relative;
-  width: min(calc(100vw - 16px), calc((100dvh - 16px) * 16 / 9));
+  width: min(calc(100vw - 4px), calc((100dvh - 4px) * 16 / 9));
   aspect-ratio: 16 / 9;
   flex-shrink: 0;
   border-radius: 10px;
@@ -164,12 +164,12 @@
 /* 控制層不攔截畫面，只有按鈕本身接受觸控。 */
 .touch-controls {
   --main-control-size: clamp(48px, 13cqw, 96px);
-  --main-control-inset: min(10%, max(8px, calc((100% - 3 * var(--main-control-size) - 24px) / 2)));
+  --main-control-inset: clamp(12px, 2cqw, 24px);
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
-.move-controls { position: absolute; bottom: 16%; left: var(--main-control-inset); display: flex; gap: 12px; }
+.move-controls { position: absolute; bottom: max(12px,3%); left: var(--main-control-inset); display: flex; gap: 12px; }
 .control-btn,
 #game-stage .rank-btn {
   width: clamp(48px, 7vw, 64px);
@@ -196,7 +196,7 @@
 .control-btn:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
 .control-btn.is-held { background: rgba(255, 45, 149, .45); border-color: #fff; }
 .control-btn[data-control] { width: var(--main-control-size); height: var(--main-control-size); font-size: clamp(24px,5cqw,38px); }
-.jump-btn[data-control] { position: absolute; right: var(--main-control-inset); bottom: 16%; font-size: clamp(16px,3cqw,24px); }
+.jump-btn[data-control] { position: absolute; right: var(--main-control-inset); bottom: max(12px,3%); font-size: clamp(16px,3cqw,24px); }
 .pause-btn { position: absolute; top: 14%; right: calc(clamp(48px, 7vw, 64px) + 16px); font-size: 14px; }
 #game-stage .rank-btn { position: absolute; top: 14%; right: 8px; z-index: 2; font-size: 20px; }
 .sound-toggle { position: fixed; top: 12px; right: 84px; z-index: 120; font-size: 22px; }

@@ -5,16 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小方塊跑酷</title>
   <meta name="color-scheme" content="light dark">
-  <script>
-    // 離線或儲存空間不可用時，仍可正常切換主題。
-    try {
-      const saved = localStorage.getItem('block-parkour-theme');
-      document.documentElement.dataset.theme = saved === 'dark' || saved === 'light'
-        ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    } catch (_) { document.documentElement.dataset.theme = 'light'; }
-    try { document.documentElement.dataset.largeText = 'false'; }
-    catch (_) { document.documentElement.dataset.largeText = 'false'; }
-  </script>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/ex.css">
 </head>

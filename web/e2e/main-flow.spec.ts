@@ -140,6 +140,14 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
     expect(response.ok()).toBe(true)
     expect(response.headers()['content-type']).toContain(type)
   }
+  const frameDocument = await page.request.get('/games/block-parkour/index.html')
+  if (frameDocument.headers()['content-security-policy']) {
+    expect(frameDocument.headers()['content-security-policy']).toContain("frame-ancestors 'self'")
+    expect(frameDocument.headers()['x-frame-options']).toBe('SAMEORIGIN')
+    const checkDocument = await page.request.get('/check')
+    expect(checkDocument.headers()['content-security-policy']).toContain("frame-ancestors 'none'")
+    expect(checkDocument.headers()['x-frame-options']).toBe('DENY')
+  }
   let reads = 0
   await page.route('**/api/game/question', async route => {
     expect(route.request().method()).toBe('GET'); reads++
@@ -188,7 +196,9 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
       expect(box.width).toBeGreaterThanOrEqual(48)
       expect(box.height).toBeGreaterThanOrEqual(48)
       expect(box.width).toBeLessThanOrEqual(mobileCanvas.width * .2)
-      expect(mobileCanvas.y + mobileCanvas.height - box.y - box.height).toBeGreaterThanOrEqual(mobileCanvas.height * 0.12)
+      const bottomGap = mobileCanvas.y + mobileCanvas.height - box.y - box.height
+      expect(bottomGap).toBeGreaterThanOrEqual(10)
+      expect(bottomGap).toBeLessThanOrEqual(Math.max(14, mobileCanvas.height * .05))
     }
     mobileControls.push(box)
   }
@@ -211,7 +221,7 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
   await page.locator('#ex-name').fill('橫向測試')
   await page.locator('#ex-start').click()
   const canvas = await page.locator('#ex-canvas').boundingBox()
-  expect(canvas!.width).toBeGreaterThan(844 * 0.65)
+  expect(canvas!.width).toBeGreaterThan(844 * 0.80)
   const controls = []
   for (const selector of ['[data-control="left"]', '[data-control="right"]', '[data-control="jump"]', '#pause-btn']) {
     const box = (await page.locator(selector).boundingBox())!
@@ -224,14 +234,18 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
     if (selector.startsWith('[data-control')) {
       expect(box.width).toBeGreaterThanOrEqual(72)
       expect(box.height).toBeGreaterThanOrEqual(72)
-      expect(canvas!.y + canvas!.height - box.y - box.height).toBeGreaterThanOrEqual(canvas!.height * 0.12)
+      const bottomGap = canvas!.y + canvas!.height - box.y - box.height
+      expect(bottomGap).toBeGreaterThanOrEqual(10)
+      expect(bottomGap).toBeLessThanOrEqual(Math.max(14, canvas!.height * .05))
     }
     controls.push(box)
   }
   const leftControl = (await page.locator('[data-control="left"]').boundingBox())!
   const jumpControl = (await page.locator('[data-control="jump"]').boundingBox())!
-  expect(leftControl.x - canvas!.x).toBeGreaterThanOrEqual(canvas!.width * 0.07)
-  expect(canvas!.x + canvas!.width - jumpControl.x - jumpControl.width).toBeGreaterThanOrEqual(canvas!.width * 0.07)
+  expect(leftControl.x - canvas!.x).toBeGreaterThanOrEqual(10)
+  expect(leftControl.x - canvas!.x).toBeLessThanOrEqual(canvas!.width * .04)
+  expect(canvas!.x + canvas!.width - jumpControl.x - jumpControl.width).toBeGreaterThanOrEqual(10)
+  expect(canvas!.x + canvas!.width - jumpControl.x - jumpControl.width).toBeLessThanOrEqual(canvas!.width * .04)
   for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
     const a = controls[i], b = controls[j]
     expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true)
