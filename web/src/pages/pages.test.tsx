@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Check, { validateFile } from './Check'
+import { refreshHealth } from '../components/ui'
 import Result from './Result'
 import Research from './Research'
 import type { AnalysisResult } from '../api'
@@ -27,7 +28,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }))
 }
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('validateFile', () => {
   it('rejects unsupported formats and oversize files', () => {
@@ -98,4 +99,32 @@ describe('Research page', () => {
     await userEvent.click(screen.getByLabelText(/我自願將匿名作答資料/))
     expect(start).toBeEnabled()
   })
+})
+
+describe('AI 模型冷卻', () => {
+  const withAi = (cooldown: number) => ({ ...health, modes: { ...health.modes, ai: 'gemini', ai_model: 'Gemini A',
+    ai_models: [{ id: 'a-1', label: 'Gemini A', remaining: 20, daily: 20, media: true, minute_left: cooldown ? 0 : 5, cooldown_seconds: cooldown }] } })
+  const serve = (body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+
+  it('沒有冷卻時不會閃爍（勾選框一直可用）', async () => {
+    serve(withAi(0))
+    refreshHealth()
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    const box = await screen.findByRole('checkbox', { name: /使用 Gemini AI 分析/ })
+    await new Promise((r) => setTimeout(r, 2200))
+    expect(box).toBeEnabled()
+    expect(box).toBeChecked()
+    expect(screen.queryByText(/冷卻中/)).toBeNull()
+  }, 10_000)
+
+  it('冷卻中：變灰並倒數，結束後恢復', async () => {
+    serve(withAi(2))
+    refreshHealth()
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    const box = await screen.findByRole('checkbox', { name: /使用 Gemini AI 分析/ })
+    await waitFor(() => expect(box).toBeDisabled())
+    expect(screen.getByText(/AI 冷卻中/)).toBeInTheDocument()
+    serve(withAi(0)) // 冷卻結束後重新讀到的狀態
+    await waitFor(() => expect(box).toBeEnabled(), { timeout: 5000 })
+  }, 10_000)
 })

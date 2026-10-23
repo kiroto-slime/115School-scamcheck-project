@@ -37,8 +37,13 @@ export default function Check() {
   // 每分鐘次數用完的模型會冷卻：用讀到狀態的時間，每秒倒數
   const [healthAt, setHealthAt] = useState(() => Date.now())
   const [now, setNow] = useState(() => Date.now())
-  useEffect(() => setHealthAt(Date.now()), [health])
-  const passed = Math.floor((now - healthAt) / 1000)
+  useEffect(() => {
+    const t = Date.now()
+    setHealthAt(t)
+    setNow(t)
+  }, [health])
+  // 不能是負數：否則沒在冷卻的模型會被誤算成「冷卻 1 秒」而一直閃
+  const passed = Math.max(0, Math.floor((now - healthAt) / 1000))
   // 圖片、影片模式只列出能分析媒體的模型
   const aiModels = (health?.modes.ai_models ?? [])
     .filter((m) => mode === 'text' || m.media)
@@ -57,9 +62,9 @@ export default function Check() {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [cooling])
-  // 有模型剛冷卻結束：重新讀一次狀態，拿到最新次數
-  const cooledAll = aiModels.length > 0 && !cooling
-  useEffect(() => { if (cooledAll && passed > 0) refreshHealth() }, [cooledAll]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 伺服器說有模型在冷卻、而倒數已經結束：重新讀一次狀態（只會在真的冷卻過後觸發）
+  const serverCooling = (health?.modes.ai_models ?? []).some((m) => m.cooldown_seconds > 0)
+  useEffect(() => { if (serverCooling && !cooling) refreshHealth() }, [serverCooling, cooling])
   const [aiChoice, setAiChoice] = useState('')
   // 切到圖片／影片、或選的模型用完／冷卻中時，改回自動
   const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0 && m.cooldown === 0) ? aiChoice : ''

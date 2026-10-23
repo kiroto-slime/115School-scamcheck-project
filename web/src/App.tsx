@@ -42,6 +42,13 @@ function ThemeButton() {
   )
 }
 
+/** 平滑捲到最上面；如果捲動被打斷（例如頁面內容變動），最後直接跳到頂端 */
+function scrollToTop() {
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
+  setTimeout(() => { if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'auto' }) }, 800)
+}
+
 /** 右下角：大字模式（＋／－）與回到頂端 */
 function FloatingButtons() {
   const { large, toggle } = useLargeText()
@@ -61,7 +68,7 @@ function FloatingButtons() {
       </button>
       {/* 回到頂端：只在往下捲時出現；沒出現時保留位置，上面的按鈕才不會跳動 */}
       <button className={`${round} border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 ${scrolled ? '' : 'invisible'}`}
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="回到頁面頂端" title="回到頂端" tabIndex={scrolled ? 0 : -1}>
+        onClick={scrollToTop} aria-label="回到頁面頂端" title="回到頂端" tabIndex={scrolled ? 0 : -1}>
         <Icon d="M12 19V5M5 12l7-7 7 7" />
       </button>
     </div>
