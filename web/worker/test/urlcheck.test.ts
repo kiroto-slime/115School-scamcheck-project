@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { factCheckLookup, factCheckQuery } from '../factcheck'
+import { factCheckLookup, factCheckQueries } from '../factcheck'
 import { analyzeText } from '../rules'
 import { extractUrls, maskHost, safeBrowsingLookup, tw165Lookup, virusTotalLookup } from '../urlcheck'
 import { call } from './helpers'
@@ -110,6 +110,17 @@ describe('Google 與 VirusTotal', () => {
     for (let i = 0; i < 2; i++) await virusTotalLookup(e(), extractUrls('a1.top a2.top'), 100)
     expect((await virusTotalLookup(e(), extractUrls('a3.top'), 100)).status).toBe('rate_limited')
   })
+
+  it('狀態接口：VirusTotal 這一分鐘用完顯示冷卻；其他服務顯示今日剩餘', async () => {
+    mockFetch(() => new Response('{}', { status: 404 }))
+    for (let i = 0; i < 2; i++) await virusTotalLookup(e(), extractUrls('b1.top b2.top'), 100)
+    const q = (await call('/api/health', { envOverride: KEYS })).json.modes.quotas
+    expect(q.virustotal.minute_left).toBe(0)
+    expect(q.virustotal.cooldown_seconds).toBeGreaterThan(0)
+    expect(q.virustotal.daily_left).toBe(450 - 4)
+    expect(q.cofacts).toMatchObject({ daily_left: 500, minute_left: null, cooldown_seconds: 0 })
+    expect(q.google.daily_left).toBe(1000)
+  })
   it('沒勾選就不送出；沒金鑰顯示未設定', async () => {
     const calls = mockFetch(() => Response.json({}))
     const r = await call('/api/analyze/text', { body: { text: '請到 https://evil-shop.cc 付款', query_cofacts: false, query_google: false }, envOverride: KEYS })
@@ -123,8 +134,23 @@ describe('Google 與 VirusTotal', () => {
     const calls = mockFetch(() => Response.json({ claims: [{ text: '假訊息', claimReview: [{ publisher: { name: '台灣事實查核中心' }, url: 'https://tfc-taiwan.org.tw/x', textualRating: '錯誤', reviewDate: '2026-01-02T00:00:00Z' }] }] }))
     const r = await factCheckLookup(e(), '[手機] 您的帳戶將被凍結 https://bit.ly/x', 100)
     expect(r.items[0]).toMatchObject({ publisher: '台灣事實查核中心', rating: '錯誤', date: '2026-01-02' })
-    expect(decodeURIComponent(calls[0].url)).toContain('query=您的帳戶將被凍結')
-    expect(factCheckQuery('看 https://a.b/c [手機]')).toBe('看')
+    // 送出的是關鍵字，不含個資、網址
+    const q = decodeURIComponent(calls[0].url)
+    expect(q).toContain('帳戶')
+    expect(q).toContain('凍結')
+    expect(q).not.toMatch(/bit\.ly|手機/)
+  })
+
+  it('Fact Check：整句話先抽關鍵字；第一組找不到再用最長的兩個詞', async () => {
+    expect(factCheckQueries('喝溫開水可以預防新冠肺炎')).toEqual(['溫開水 預防 新冠 肺炎', '溫開水 預防'])
+    expect(factCheckQueries('看 https://a.b/c [手機]')).toEqual([])
+    const calls = mockFetch((url) => decodeURIComponent(url).includes('query=溫開水 預防&')
+      ? Response.json({ claims: [{ text: '溫開水防疫', claimReview: [{ publisher: { name: 'MyGoPen' }, url: 'https://mygopen.com/x', textualRating: '不實' }] }] })
+      : Response.json({}))
+    const r = await factCheckLookup(e(), '喝溫開水可以預防新冠肺炎', 100)
+    expect(r).toMatchObject({ status: 'found', items: [{ publisher: 'MyGoPen' }] })
+    expect(calls.length).toBe(2)
+    expect(JSON.stringify(r)).not.toContain('溫開水 預防') // 不保存搜尋關鍵字
   })
 })
 

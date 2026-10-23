@@ -42,11 +42,9 @@ function ThemeButton() {
   )
 }
 
-/** 平滑捲到最上面；如果捲動被打斷（例如頁面內容變動），最後直接跳到頂端 */
+/** 直接跳到最上面（不用捲動動畫，避免捲一半又跳） */
 function scrollToTop() {
-  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
-  setTimeout(() => { if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'auto' }) }, 800)
+  window.scrollTo({ top: 0, behavior: 'instant' })
 }
 
 /** 右下角：大字模式（＋／－）與回到頂端 */

@@ -5,6 +5,7 @@
  * - VirusTotal（使用者勾選且有 VIRUSTOTAL_API_KEY）：只查網域報告，不提交新網址（不會分享給資安社群）
  * 絕不連線或開啟使用者訊息中的網址。結果只保留遮蔽後的網域，資料庫不存完整網址。
  */
+import { VT_PER_MINUTE, vtMinuteName } from './quotas'
 import { sleep, takeDailyQuota } from './util'
 
 const URL_RE = /(?:https?:\/\/|www\.)[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi
@@ -244,8 +245,7 @@ export async function safeBrowsingLookup(env: Env, urls: FoundUrl[], dailyLimit:
 
 /** 免費版每分鐘 4 次：用「每分鐘」與「每日」兩個計數器 */
 async function vtQuota(db: D1Database, dailyLimit: number): Promise<boolean> {
-  const minute = new Date().toISOString().slice(11, 16).replace(':', '')
-  return (await takeDailyQuota(db, `virustotal_min_${minute}`, 4)) && takeDailyQuota(db, 'virustotal', dailyLimit)
+  return (await takeDailyQuota(db, vtMinuteName(), VT_PER_MINUTE)) && takeDailyQuota(db, 'virustotal', dailyLimit)
 }
 
 export async function virusTotalLookup(env: Env, urls: FoundUrl[], dailyLimit: number, opts: { fetcher?: typeof fetch; retryDelayMs?: number } = {}): Promise<ExternalUrlResult> {

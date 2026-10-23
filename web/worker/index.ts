@@ -12,6 +12,7 @@ import { RULE_VERSION } from './rules'
 import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
 import { tw165Meta } from './urlcheck'
 import { currentModel, modelStates } from './aimodels'
+import { serviceQuotas } from './quotas'
 import { HttpError } from './util'
 
 export const app = new Hono<AppEnv>().basePath('/api')
@@ -37,6 +38,7 @@ app.get('/health', async (c) => {
       cofacts: cofactsMode(s),
       google: googleMode(c.env),
       virustotal: virusTotalMode(c.env),
+      quotas: await serviceQuotas(c.env.DB, s),
       tw165: { available: tw165.available, origin: tw165.origin ?? null, updated_at: tw165.updated_at ?? null, count: tw165.count ?? 0 },
       ai: aiMode(c.env),
       ai_model: cur?.label ?? null,

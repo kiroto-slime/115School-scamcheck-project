@@ -43,6 +43,7 @@ export interface Health {
     ai: 'disabled' | 'gemini'
     ai_model: string | null
     ai_models?: AiModelState[]
+    quotas?: { cofacts: QuotaState; google: QuotaState; virustotal: QuotaState }
     research_mode: 'simulation' | 'formal'
     research_collection_enabled: boolean
     admin_configured: boolean
@@ -101,6 +102,9 @@ export interface AnalysisResult {
   checked_at: string
   extracted_text_preview?: string
 }
+
+/** 外部服務今天剩幾次、這一分鐘是否冷卻中 */
+export interface QuotaState { daily_left: number; minute_left: number | null; cooldown_seconds: number }
 
 export interface AiModelState { id: string; label: string; remaining: number; daily: number; media: boolean; minute_left: number; cooldown_seconds: number }
 

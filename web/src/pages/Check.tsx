@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
@@ -56,14 +56,33 @@ export default function Check() {
   const anyLeftToday = aiModels.some((m) => m.remaining > 0)
   // 今天還有額度、但這一分鐘全部冷卻中：顯示最短的等待秒數
   const aiWait = !aiNow && anyLeftToday ? Math.min(...aiModels.filter((m) => m.remaining > 0).map((m) => m.cooldown)) : 0
-  const cooling = aiModels.some((m) => m.cooldown > 0)
+  // Cofacts、Google、VirusTotal 的剩餘次數與冷卻（VirusTotal 每分鐘只有 4 次）
+  const quotas = health?.modes.quotas
+  const svc = (k: 'cofacts' | 'google' | 'virustotal') => {
+    const q = quotas?.[k]
+    if (!q) return { blocked: false, cooldown: 0, chip: null as ReactNode }
+    const cooldown = Math.max(0, q.cooldown_seconds - passed)
+    const blocked = q.daily_left <= 0 || cooldown > 0
+    const chip = q.daily_left <= 0
+      ? <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日次數已用完</span>
+      : cooldown > 0
+        ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">冷卻中，{cooldown} 秒後可用</span>
+        : k === 'virustotal'
+          ? <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">今日剩 {q.daily_left} 次・每分鐘最多 4 次</span>
+          : null
+    return { blocked, cooldown, chip }
+  }
+  const cofactsQ = svc('cofacts')
+  const googleQ = svc('google')
+  const vtQ = svc('virustotal')
+  const cooling = aiModels.some((m) => m.cooldown > 0) || vtQ.cooldown > 0
   useEffect(() => {
     if (!cooling) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [cooling])
   // 伺服器說有模型在冷卻、而倒數已經結束：重新讀一次狀態（只會在真的冷卻過後觸發）
-  const serverCooling = (health?.modes.ai_models ?? []).some((m) => m.cooldown_seconds > 0)
+  const serverCooling = (health?.modes.ai_models ?? []).some((m) => m.cooldown_seconds > 0) || (quotas?.virustotal.cooldown_seconds ?? 0) > 0
   useEffect(() => { if (serverCooling && !cooling) refreshHealth() }, [serverCooling, cooling])
   const [aiChoice, setAiChoice] = useState('')
   // 切到圖片／影片、或選的模型用完／冷卻中時，改回自動
@@ -142,7 +161,11 @@ export default function Check() {
       setBusy('準備中…')
       const rid = await ensureConsent()
       let result: AnalysisResult | NeedsManualText
-      const sourceFlags = { query_cofacts: cofactsAvailable && queryCofacts, query_google: googleAvailable && queryGoogle, query_virustotal: vtAvailable && queryVt }
+      const sourceFlags = {
+        query_cofacts: cofactsAvailable && queryCofacts && !cofactsQ.blocked,
+        query_google: googleAvailable && queryGoogle && !googleQ.blocked,
+        query_virustotal: vtAvailable && queryVt && !vtQ.blocked,
+      }
       if (mode === 'text') {
         setBusy(aiOn ? '分析中（含 Gemini AI，約需 5–30 秒）…' : '分析文字與查詢來源中…')
         result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) })
@@ -232,7 +255,7 @@ export default function Check() {
           分析結果（不含原文）暫存 24 小時後自動刪除。<Link to="/privacy">詳細說明</Link>
         </p>
         <ServiceOptions options={([
-          cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts },
+          cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
           aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi,
             disabled: aiBlocked,
             chip: aiNow ? (
@@ -253,8 +276,8 @@ export default function Check() {
                 選「自動」時，免費額度用完會自動換下一個模型（共剩 {aiLeft} 次）；自己選的模型用完也會自動往下換：{aiModels.map((m) => `${m.label} 剩 ${m.remaining}`).join(' → ')}
               </p>
             ) },
-          googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle },
-          vtAvailable && { key: 'vt', label: 'VirusTotal 病毒掃描', sends: ['網域'], to: 'VirusTotal（只查已有的掃描紀錄）', checked: queryVt, onChange: setQueryVt },
+          googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle, disabled: googleQ.blocked, chip: googleQ.chip },
+          vtAvailable && { key: 'vt', label: 'VirusTotal 病毒掃描', sends: ['網域'], to: 'VirusTotal（只查已有的掃描紀錄）', checked: queryVt, onChange: setQueryVt, disabled: vtQ.blocked, chip: vtQ.chip },
         ].filter(Boolean) as ServiceOption[])} />
         <label className="flex min-h-11 items-start gap-3">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={consentB}

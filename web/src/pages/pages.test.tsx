@@ -128,3 +128,19 @@ describe('AI 模型冷卻', () => {
     await waitFor(() => expect(box).toBeEnabled(), { timeout: 5000 })
   }, 10_000)
 })
+
+describe('其他服務冷卻', () => {
+  it('VirusTotal 這一分鐘用完：變灰並倒數；今日用完的服務顯示已用完', async () => {
+    const q = (daily: number, cd = 0, minute: number | null = null) => ({ daily_left: daily, minute_left: minute, cooldown_seconds: cd })
+    const body = { ...health, modes: { ...health.modes, google: 'live', virustotal: 'live', quotas: { cofacts: q(500), google: q(0), virustotal: q(400, 30, 0) } } }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    refreshHealth()
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    const vt = await screen.findByRole('checkbox', { name: /VirusTotal/ })
+    expect(vt).toBeDisabled()
+    expect(screen.getByText(/冷卻中，\d+ 秒後可用/)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Google 網址安全/ })).toBeDisabled()
+    expect(screen.getByText('今日次數已用完')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Cofacts/ })).toBeEnabled()
+  })
+})
