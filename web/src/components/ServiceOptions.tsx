@@ -62,9 +62,8 @@ function SelectAll({ options }: { options: ServiceOption[] }) {
   const all = usable.length > 0 && checkedCount === usable.length
   return (
     <label className="flex min-h-11 items-center gap-3 border-b border-slate-200 pb-1">
+      {/* 全部都勾了才打勾；部分勾選時維持空白，按一下就全部勾起來 */}
       <input type="checkbox" className="h-5 w-5 shrink-0" disabled={!usable.length} checked={all}
-        // 部分勾選時顯示「－」
-        ref={(el) => { if (el) el.indeterminate = checkedCount > 0 && !all }}
         onChange={() => usable.forEach((o) => o.onChange(!all))} />
       <span className="text-sm font-medium">全選</span>
     </label>

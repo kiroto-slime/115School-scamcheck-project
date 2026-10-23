@@ -124,6 +124,14 @@ describe('管理員', () => {
     const aid = (await call('/api/analyze/text', { body: { text: '請立即匯款到這個帳戶' } })).json.analysis_id
     expect((await call('/api/feedback', { body: { analysis_id: aid, helpful: true, rating: 4 } })).status).toBe(200)
     expect((await call('/api/feedback', { body: { analysis_id: '0'.repeat(32) } })).status).toBe(404)
+    // 只在查核頁勾了「B. 同意研究」（沒做研究測驗）的人，也能用自己的研究編號送評價
+    const consent = await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })
+    const rid = consent.json.research_id
+    const checked = await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })
+    expect(checked.json.consent_research).toBe(true)
+    expect((await call('/api/feedback', { body: { analysis_id: checked.json.analysis_id, research_id: rid, helpful: true } })).status).toBe(200)
+    // 不存在的研究編號仍然拒絕
+    expect((await call('/api/feedback', { body: { analysis_id: checked.json.analysis_id, research_id: 'RZZZZZZZZZZZZ', helpful: true } })).status).toBe(404)
     const survey = { respondent_role: 'teacher', product: 'B', perceived_value: 4, most_needed_feature: 'teaching_material', teacher_would_use: true,
       verbal_interest: true, trial_intent: true, payment_intent: false, acceptable_price_range: '1-99' }
     expect((await call('/api/survey', { body: survey })).status).toBe(200)

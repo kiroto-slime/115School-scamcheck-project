@@ -62,6 +62,8 @@ describe('Check page', () => {
     expect(screen.getByText(/偵測到 IG、Facebook/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '改用圖片截圖' }))
     expect(screen.queryByLabelText(/貼上可疑訊息/)).toBeNull()
+    // 圖片模式也有提醒
+    expect(screen.getByText(/IG、Facebook 貼文請先截圖/)).toBeInTheDocument()
   })
 
   it('全選：一次勾選或取消所有查詢服務，不會勾到研究同意 B、C', async () => {
@@ -71,7 +73,9 @@ describe('Check page', () => {
     render(<MemoryRouter><Check /></MemoryRouter>)
     const all = await screen.findByRole('checkbox', { name: '全選' })
     const vt = screen.getByRole('checkbox', { name: /VirusTotal/ })
-    expect(vt).not.toBeChecked() // 預設 VirusTotal 沒勾，所以全選是「部分勾選」
+    expect(vt).not.toBeChecked()
+    expect(all).not.toBeChecked() // 部分勾選時「全選」維持空白，不顯示「－」
+    expect((all as HTMLInputElement).indeterminate).toBe(false)
     await userEvent.click(all)
     expect(vt).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).toBeChecked()

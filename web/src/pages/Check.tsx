@@ -248,6 +248,9 @@ export default function Check() {
               <input id="file" type="file" className="input file:mr-3 file:min-h-10 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:text-teal-800"
                 accept={mode === 'image' ? '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp' : '.mp4,.mov,video/mp4,video/quicktime'}
                 onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+              <p className="mt-1 text-xs text-slate-500">
+                {mode === 'image' ? 'IG、Facebook 貼文請先截圖（含貼文文字與帳號名稱）再上傳；網站讀不到貼文連結的內容。' : 'IG、Facebook 影片請先用手機螢幕錄影再上傳；網站讀不到貼文連結的內容。'}
+              </p>
             </div>
             {fileError && <Alert kind="error">{fileError}</Alert>}
             {preview && mode === 'image' && <img src={preview} alt="已選擇的圖片預覽" className="max-h-64 rounded-lg border object-contain" />}
@@ -260,6 +263,9 @@ export default function Check() {
               <label htmlFor="extra" className="label">補充文字（{aiOn ? '選填' : '未使用 AI 時必填'}：圖片或影片中的文字、旁白重點）</label>
               <textarea id="extra" ref={extraRef} className="input min-h-24" value={extra} maxLength={limits.max_text_chars}
                 onChange={(e) => setExtra(e.target.value)} />
+              {SOCIAL_LINK.test(extra) && (
+                <Alert kind="warn">補充文字裡的 IG、Facebook 或 Threads 連結只會檢查網址本身，網站看不到貼文內容；請以上傳的截圖或錄影為主。</Alert>
+              )}
             </div>
           </>
         )}
