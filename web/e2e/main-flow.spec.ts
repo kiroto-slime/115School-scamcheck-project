@@ -16,6 +16,10 @@ test('主要查核流程：輸入文字 → 結果頁', async ({ page }) => {
   await page.getByRole('button', { name: '開始查核' }).click()
   await expect(page.getByRole('heading', { name: '查核結果', exact: true })).toBeVisible()
   await expect(page.getByText('風險等級：高').first()).toBeVisible()
+  // 結論卡與建議行動直接顯示；詳細結果要點「查看完整分析」才展開
+  await expect(page.getByText('建議你這樣做')).toBeVisible()
+  await expect(page.getByText(/未查詢（使用者選擇不送出/)).toBeHidden()
+  await page.getByText('查看完整分析').click()
   await expect(page.getByText(/未查詢（使用者選擇不送出/)).toBeVisible()
   await noHorizontalOverflow(page)
   await page.getByRole('button', { name: '有幫助' }).click()

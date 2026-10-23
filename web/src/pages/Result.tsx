@@ -8,6 +8,53 @@ const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同�
 /** gemini-3.5-flash-lite → Gemini 3.5 Flash Lite */
 const modelName = (id: string) => id.replace(/-it$/, '').replace(/-preview$/, '').replace(/-a\d+b$/, '').split('-').map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
 
+const HEADLINE: Record<string, [string, string]> = {
+  高: ['很可能是詐騙，請不要照訊息的指示做', 'border-red-300 bg-red-50'],
+  中: ['有可疑之處，請先查證再行動', 'border-amber-300 bg-amber-50'],
+  低: ['目前沒有明顯的詐騙特徵，但仍要小心', 'border-emerald-300 bg-emerald-50'],
+  資訊不足: ['資訊不足，無法判斷；不代表安全', 'border-slate-300 bg-slate-50'],
+}
+
+/** 結論卡用的主要理由：外部來源的明確結果優先，再來是規則特徵（白話、最多 5 點） */
+export function mainReasons(d: AnalysisResult): string[] {
+  const out: string[] = []
+  const u = d.url_checks
+  if (u?.tw165.status === 'listed') out.push('網址在警政署 165 涉詐網站名單上')
+  if (u?.safe_browsing.status === 'found') out.push('Google 判定網址疑似詐騙或釣魚網站')
+  if (u?.virustotal.status === 'found') out.push('多個資安引擎判定網址有惡意')
+  if (d.cofacts.matches.some((m) => m.reply_type === 'RUMOR')) out.push('Cofacts 有相同或相似的訊息被查核為不實')
+  if (d.fact_check?.status === 'found') out.push('找到相關的事實查核報告')
+  for (const f of d.features) out.push(`${f.label}（${f.triggers.slice(0, 2).join('、')}）`)
+  return out.slice(0, 5)
+}
+
+function ConclusionCard({ data }: { data: AnalysisResult }) {
+  const [headline, tone] = HEADLINE[data.risk_level] ?? HEADLINE['資訊不足']
+  const reasons = mainReasons(data)
+  const aiSummary = data.ai.status === 'ok' ? data.ai.summary : null
+  return (
+    <section className={`space-y-4 rounded-2xl border-2 p-4 shadow-sm sm:p-6 ${tone}`} aria-labelledby="conclusion">
+      <div className="flex flex-wrap items-center gap-3">
+        <RiskBadge level={data.risk_level} />
+        {data.risk_score !== null && <span className="text-sm text-slate-600">風險指數 {data.risk_score} / 100</span>}
+      </div>
+      <h2 id="conclusion" className="text-xl sm:text-2xl">{headline}</h2>
+      {aiSummary && <p className="break-words text-slate-700">{aiSummary}</p>}
+      {reasons.length > 0 && (
+        <div>
+          <p className="font-medium">主要原因</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+        </div>
+      )}
+      <div className="rounded-xl bg-white/70 p-3">
+        <p className="font-medium">建議你這樣做</p>
+        <ul className="mt-1 list-disc space-y-1 pl-5">{data.safe_actions.map((a) => <li key={a}>{a}</li>)}</ul>
+      </div>
+      <p className="text-xs text-slate-500">{data.score_disclaimer}{aiSummary ? 'AI 摘要可能出錯。' : ''}</p>
+    </section>
+  )
+}
+
 function AiBlock({ ai }: { ai: AnalysisResult['ai'] }) {
   if (ai.status === 'ok')
     return (
@@ -56,10 +103,8 @@ export default function Result() {
   const fc = data.fact_check
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1>查核結果</h1>
-        <RiskBadge level={data.risk_level} />
-      </div>
+      <h1>查核結果</h1>
+      <ConclusionCard data={data} />
       {data.media?.notes?.map((n) => <Alert key={n} kind="info">{n}</Alert>)}
       {data.extracted_text_preview && (
         <details className="card">
@@ -68,6 +113,13 @@ export default function Result() {
         </details>
       )}
 
+      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 font-medium text-slate-800 hover:bg-slate-50 sm:px-6 [&::-webkit-details-marker]:hidden">
+          <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90" fill="currentColor" aria-hidden="true"><path d="M8 5l10 7-10 7z" /></svg>
+          <span className="group-open:hidden">查看完整分析</span><span className="hidden group-open:inline">收起完整分析</span>
+          <span className="text-sm font-normal text-slate-500">（各來源查詢結果、規則、AI、風險指數）</span>
+        </summary>
+        <div className="space-y-4 border-t border-slate-200 p-3 sm:p-4">
       <Section step={1} title="Cofacts 查核結果">
         <p className={c.status === 'error' ? 'text-red-700' : 'text-slate-700'}>{c.message}</p>
         {c.status === 'not_found' && <p className="text-sm text-slate-600">查無資料不代表沒有詐騙風險。</p>}
@@ -149,17 +201,15 @@ export default function Result() {
         <Alert kind="info">{data.score_disclaimer}</Alert>
       </Section>
 
-      <Section step={6} title="建議的安全行動">
-        <ul className="list-disc space-y-1 pl-5">{data.safe_actions.map((a) => <li key={a}>{a}</li>)}</ul>
-      </Section>
-
-      <Section step={7} title="查核來源與時間">
+      <Section step={6} title="查核來源與時間">
         <p className="text-sm">查核時間：{formatTime(data.checked_at)}</p>
         <p className="text-sm">規則版本：{data.rule_version} · Cofacts：{c.mode === 'live' ? (c.status === 'skipped' ? '未送出' : '已查詢') : '已關閉'} · 外部 AI：{data.external_ai_used ? '有' : '未使用'}</p>
         {c.matches.length === 0 && <p className="text-sm text-slate-600">本次沒有可引用的外部查核來源。</p>}
       </Section>
+        </div>
+      </details>
 
-      <Section step={8} title="這次結果對你有幫助嗎？">
+      <Section title="這次結果對你有幫助嗎？">
         {fb === 'sent' ? <Alert kind="success">感謝回饋！</Alert> : (
           <div className="flex gap-2">
             <button className="btn-secondary flex-1 sm:flex-none" onClick={() => sendFeedback(true)}>有幫助</button>

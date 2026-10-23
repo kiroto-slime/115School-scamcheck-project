@@ -70,7 +70,14 @@ describe('Result page', () => {
     render(<MemoryRouter initialEntries={['/result/' + 'a'.repeat(32)]}><Routes><Route path="/result/:id" element={<Result />} /></Routes></MemoryRouter>)
     await screen.findByText('Cofacts 查核結果')
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.replace(/^\d/, ''))
-    expect(headings).toEqual(['Cofacts 查核結果', '網址安全檢查', '規則分析結果', 'AI 分析（Google Gemini）', '綜合風險指數', '建議的安全行動', '查核來源與時間', '這次結果對你有幫助嗎？'])
+    // 結論卡在最上面，詳細結果收在「查看完整分析」裡，回饋在最下面
+    expect(headings).toEqual(['很可能是詐騙，請不要照訊息的指示做', 'Cofacts 查核結果', '網址安全檢查', '規則分析結果', 'AI 分析（Google Gemini）', '綜合風險指數', '查核來源與時間', '這次結果對你有幫助嗎？'])
+    expect(screen.getByText('查看完整分析').closest('details')).not.toHaveAttribute('open')
+    // 建議行動跟結論卡在一起（不在收起來的區塊裡）
+    const conclusion = screen.getByRole('region', { name: /很可能是詐騙/ })
+    expect(conclusion).toHaveTextContent('建議你這樣做')
+    expect(conclusion).toHaveTextContent('停下來查證')
+    expect(conclusion).toHaveTextContent('急迫時間壓力（立即）')
     expect(screen.getByText(/尚無查核資料/)).toBeInTheDocument()
     expect(screen.queryByText(/在 Cofacts 查看原始查核/)).not.toBeInTheDocument()
     expect(screen.getByText(/尚未經人工驗證/)).toBeInTheDocument()
@@ -84,7 +91,8 @@ describe('Result page with Gemini', () => {
       summary: '冒充客服索取驗證碼。', risk_level: '高', risk_points: ['索取驗證碼'], advice: ['不要提供驗證碼'], media_description: null } }
     mockFetch(() => withAi)
     render(<MemoryRouter initialEntries={['/result/' + 'a'.repeat(32)]}><Routes><Route path="/result/:id" element={<Result />} /></Routes></MemoryRouter>)
-    expect(await screen.findByText('冒充客服索取驗證碼。')).toBeInTheDocument()
+    // AI 摘要同時出現在結論卡和完整分析裡
+    expect(await screen.findAllByText('冒充客服索取驗證碼。')).toHaveLength(2)
     expect(screen.getByText(/不列入下方的規則風險指數/)).toBeInTheDocument()
     expect(screen.getByText('不要提供驗證碼')).toBeInTheDocument()
   })
