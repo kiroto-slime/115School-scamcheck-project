@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
-import { Alert, Spinner, useHealth } from '../components/ui'
+import { Alert, refreshHealth, Spinner, useHealth } from '../components/ui'
 
 type Mode = 'text' | 'image' | 'video'
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -34,13 +34,37 @@ export default function Check() {
   const [useAi, setUseAi] = useState(true)
   const aiAvailable = health?.modes.ai === 'gemini'
   const cofactsAvailable = health?.modes.cofacts === 'live'
+  // 每分鐘次數用完的模型會冷卻：用讀到狀態的時間，每秒倒數
+  const [healthAt, setHealthAt] = useState(() => Date.now())
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => setHealthAt(Date.now()), [health])
+  const passed = Math.floor((now - healthAt) / 1000)
   // 圖片、影片模式只列出能分析媒體的模型
-  const aiModels = (health?.modes.ai_models ?? []).filter((m) => mode === 'text' || m.media)
+  const aiModels = (health?.modes.ai_models ?? [])
+    .filter((m) => mode === 'text' || m.media)
+    .map((m) => {
+      const cooldown = Math.max(0, m.cooldown_seconds - passed)
+      return { ...m, cooldown, minute_left: cooldown > 0 ? 0 : Math.max(m.minute_left, 1) }
+    })
   const aiNow = currentAiModel(aiModels)
   const aiLeft = aiModels.reduce((n, m) => n + m.remaining, 0)
+  const anyLeftToday = aiModels.some((m) => m.remaining > 0)
+  // 今天還有額度、但這一分鐘全部冷卻中：顯示最短的等待秒數
+  const aiWait = !aiNow && anyLeftToday ? Math.min(...aiModels.filter((m) => m.remaining > 0).map((m) => m.cooldown)) : 0
+  const cooling = aiModels.some((m) => m.cooldown > 0)
+  useEffect(() => {
+    if (!cooling) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [cooling])
+  // 有模型剛冷卻結束：重新讀一次狀態，拿到最新次數
+  const cooledAll = aiModels.length > 0 && !cooling
+  useEffect(() => { if (cooledAll && passed > 0) refreshHealth() }, [cooledAll]) // eslint-disable-line react-hooks/exhaustive-deps
   const [aiChoice, setAiChoice] = useState('')
-  // 切到圖片／影片時，原本選的模型如果不能看媒體就改回自動
-  const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0) ? aiChoice : ''
+  // 切到圖片／影片、或選的模型用完／冷卻中時，改回自動
+  const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0 && m.cooldown === 0) ? aiChoice : ''
+  const aiBlocked = !aiNow // 今天用完，或這一分鐘全部冷卻中
+  const aiOn = aiAvailable && useAi && !aiBlocked
   const googleAvailable = health?.modes.google === 'live'
   const vtAvailable = health?.modes.virustotal === 'live'
   const [queryGoogle, setQueryGoogle] = useState(true)
@@ -115,10 +139,10 @@ export default function Check() {
       let result: AnalysisResult | NeedsManualText
       const sourceFlags = { query_cofacts: cofactsAvailable && queryCofacts, query_google: googleAvailable && queryGoogle, query_virustotal: vtAvailable && queryVt }
       if (mode === 'text') {
-        setBusy(aiAvailable && useAi ? '分析中（含 Gemini AI，約需 5–30 秒）…' : '分析文字與查詢來源中…')
-        result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiAvailable && useAi, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) })
+        setBusy(aiOn ? '分析中（含 Gemini AI，約需 5–30 秒）…' : '分析文字與查詢來源中…')
+        result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) })
       } else {
-        const ai = aiAvailable && useAi
+        const ai = aiOn
         const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
         if (mode === 'image') {
           setBusy('處理圖片中…')
@@ -140,6 +164,7 @@ export default function Check() {
         setTimeout(() => extraRef.current?.focus(), 50)
         return
       }
+      refreshHealth() // AI 次數變了
       nav(`/result/${result.analysis_id}`, { state: result })
     } catch (err) {
       setError(err instanceof ApiError || (err instanceof Error && /[一-鿿]/.test(err.message)) ? err.message : '發生未預期的錯誤，請稍後再試。')
@@ -182,12 +207,12 @@ export default function Check() {
             {fileError && <Alert kind="error">{fileError}</Alert>}
             {preview && mode === 'image' && <img src={preview} alt="已選擇的圖片預覽" className="max-h-64 rounded-lg border object-contain" />}
             {preview && mode === 'video' && <video src={preview} controls playsInline className="max-h-64 w-full rounded-lg border" />}
-            {mode === 'video' && (aiAvailable && useAi
+            {mode === 'video' && (aiOn
               ? <Alert kind="info">影片會交給 Gemini 分析畫面與聲音，分析完成後即刪除 Google 上的檔案。</Alert>
               : <Alert kind="warn">未使用 AI 時無法分析影片內容，請在下方「補充文字」輸入影片中的文字或旁白重點。</Alert>)}
             {manualHint && <Alert kind="warn">{manualHint}</Alert>}
             <div>
-              <label htmlFor="extra" className="label">補充文字（{aiAvailable && useAi ? '選填' : '未使用 AI 時必填'}：圖片或影片中的文字、旁白重點）</label>
+              <label htmlFor="extra" className="label">補充文字（{aiOn ? '選填' : '未使用 AI 時必填'}：圖片或影片中的文字、旁白重點）</label>
               <textarea id="extra" ref={extraRef} className="input min-h-24" value={extra} maxLength={limits.max_text_chars}
                 onChange={(e) => setExtra(e.target.value)} />
             </div>
@@ -204,15 +229,20 @@ export default function Check() {
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts },
           aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi,
+            disabled: aiBlocked,
             chip: aiNow ? (
               <select aria-label="選擇 AI 模型" className="input min-h-9 w-auto max-w-full py-1 text-xs" value={aiModel}
                 onClick={(e) => e.stopPropagation()} onChange={(e) => setAiChoice(e.target.value)}>
                 <option value="">自動（目前 {aiNow.label}，剩 {aiNow.remaining} 次）</option>
                 {aiModels.map((m) => (
-                  <option key={m.id} value={m.id} disabled={m.remaining <= 0}>{m.label}（{m.remaining > 0 ? `剩 ${m.remaining} 次` : '今日已用完'}）</option>
+                  <option key={m.id} value={m.id} disabled={m.remaining <= 0 || m.cooldown > 0}>
+                    {m.label}（{m.remaining <= 0 ? '今日已用完' : m.cooldown > 0 ? `冷卻中 ${m.cooldown} 秒` : `剩 ${m.remaining} 次`}）
+                  </option>
                 ))}
               </select>
-            ) : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日 AI 額度已用完</span>,
+            ) : aiWait > 0
+              ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">使用人數較多，AI 冷卻中，{aiWait} 秒後可用</span>
+              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日 AI 額度已用完</span>,
             detail: (
               <p className="text-xs text-slate-600">
                 選「自動」時，免費額度用完會自動換下一個模型（共剩 {aiLeft} 次）；自己選的模型用完也會自動往下換：{aiModels.map((m) => `${m.label} 剩 ${m.remaining}`).join(' → ')}

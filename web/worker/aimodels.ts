@@ -6,7 +6,7 @@
  */
 import { AIMedia, AIResult, Gemini, GeminiError } from './gemini'
 import type { AppSettings } from './settings'
-import { nowIso, takeDailyQuota } from './util'
+import { takeDailyQuota } from './util'
 
 export interface ModelConf {
   id: string
@@ -69,25 +69,44 @@ export interface ModelState {
   media: boolean
   /** 代號錯誤或不支援，今天先跳過 */
   unavailable: boolean
+  /** 這一分鐘還能用幾次 */
+  minute_left: number
+  /** 這一分鐘用完時，還要等幾秒 */
+  cooldown_seconds: number
 }
 
-export async function modelStates(db: D1Database, models: ModelConf[]): Promise<ModelState[]> {
-  const day = googleDay()
-  const { results } = await db.prepare('SELECT name, count FROM usage_counters WHERE day = ? AND (name LIKE ? OR name LIKE ?)').bind(day, 'gemini:%', 'gemini_bad:%').all<{ name: string; count: number }>()
+const minuteKey = (now = new Date()) => now.toISOString().slice(11, 16).replace(':', '')
+const rpmKey = (id: string, minute: string) => `gemini_rpm:${id}:${minute}`
+
+export async function modelStates(db: D1Database, models: ModelConf[], now = new Date()): Promise<ModelState[]> {
+  const day = googleDay(now)
+  const minute = minuteKey(now)
+  const { results } = await db
+    .prepare('SELECT name, count FROM usage_counters WHERE day = ? AND (name LIKE ? OR name LIKE ? OR name LIKE ?)')
+    .bind(day, 'gemini:%', 'gemini_bad:%', `gemini_rpm:%:${minute}`)
+    .all<{ name: string; count: number }>()
   const counts = new Map(results.map((r) => [r.name, r.count]))
-  return models.map((m) => ({
-    id: m.id,
-    label: modelLabel(m.id),
-    daily: m.daily,
-    remaining: Math.max(0, m.daily - (counts.get(usedKey(m.id)) ?? 0)),
-    media: m.media,
-    unavailable: (counts.get(badKey(m.id)) ?? 0) > 0,
-  }))
+  const secondsToNextMinute = 60 - now.getUTCSeconds()
+  return models.map((m) => {
+    const minuteLeft = Math.max(0, m.rpm - (counts.get(rpmKey(m.id, minute)) ?? 0))
+    return {
+      id: m.id,
+      label: modelLabel(m.id),
+      daily: m.daily,
+      remaining: Math.max(0, m.daily - (counts.get(usedKey(m.id)) ?? 0)),
+      media: m.media,
+      unavailable: (counts.get(badKey(m.id)) ?? 0) > 0,
+      minute_left: minuteLeft,
+      cooldown_seconds: minuteLeft > 0 ? 0 : secondsToNextMinute,
+    }
+  })
 }
 
-/** 目前會被使用的模型（有圖片／影片時只看能分析媒體的） */
+/** 目前會被使用的模型（有圖片／影片時只看能分析媒體的；這一分鐘用完的先跳過） */
 export const currentModel = (states: ModelState[], needMedia = false) =>
-  states.find((m) => !m.unavailable && m.remaining > 0 && (!needMedia || m.media)) ?? null
+  states.find((m) => !m.unavailable && m.remaining > 0 && m.minute_left > 0 && (!needMedia || m.media)) ??
+  states.find((m) => !m.unavailable && m.remaining > 0 && (!needMedia || m.media)) ??
+  null
 
 const isDailyQuota = (raw: string) => /PerDay|per day|daily/i.test(raw)
 const isNotFound = (e: GeminiError) => e.status === 404 || (e.status === 400 && /not found|not supported|unsupported model|is not available/i.test(e.raw))
@@ -107,15 +126,16 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
   if (!(await takeDailyQuota(env.DB, 'gemini', s.gemini_daily_limit)))
     return fail('rate_limited', '今日 AI 分析次數已達網站上限（可在管理頁「系統設定」調整）。')
 
-  const day = googleDay()
-  const minute = nowIso().slice(11, 16).replace(':', '')
-  const states = await modelStates(env.DB, models)
+  const now = new Date()
+  const day = googleDay(now)
+  const minute = minuteKey(now)
+  const states = await modelStates(env.DB, models, now)
   const skipped: string[] = []
   for (const m of models) {
     const st = states.find((x) => x.id === m.id)!
     if (st.unavailable || st.remaining <= 0 || (needMedia && !m.media)) continue
     // 先檢查每分鐘，再扣每日次數
-    if ((await bump(env.DB, day, `gemini_rpm:${m.id}:${minute}`)) > m.rpm) {
+    if ((await bump(env.DB, day, rpmKey(m.id, minute))) > m.rpm) {
       skipped.push(`${modelLabel(m.id)} 這一分鐘的次數已滿`)
       continue
     }
@@ -129,7 +149,11 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         if (isDailyQuota(e.raw)) {
           await setCount(env.DB, day, usedKey(m.id), m.daily)
           skipped.push(`${modelLabel(m.id)} 今日額度已用完`)
-        } else skipped.push(`${modelLabel(m.id)} 這一分鐘的次數已滿`)
+        } else {
+          // Google 說這一分鐘滿了：記下來，讓查核頁顯示冷卻中
+          await setCount(env.DB, day, rpmKey(m.id, minute), m.rpm)
+          skipped.push(`${modelLabel(m.id)} 這一分鐘的次數已滿`)
+        }
         continue
       }
       if (isNotFound(e)) {

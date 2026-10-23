@@ -9,6 +9,8 @@ export interface ServiceOption {
   to: string
   checked: boolean
   onChange: (v: boolean) => void
+  /** 暫時不能用（例如 AI 冷卻中）：變灰、不能勾 */
+  disabled?: boolean
   /** 標籤旁的小提示（例如目前模型與剩餘次數） */
   chip?: ReactNode
   /** 展開說明裡的補充（例如模型順序） */
@@ -65,8 +67,8 @@ export function ServiceOptions({ options }: { options: ServiceOption[] }) {
       </div>
       {options.map((o) => (
         <label key={o.key} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1">
-          <input type="checkbox" className="h-5 w-5 shrink-0" checked={o.checked} onChange={(e) => o.onChange(e.target.checked)} />
-          <span className="text-sm">{o.label}</span>
+          <input type="checkbox" className="h-5 w-5 shrink-0" disabled={o.disabled} checked={o.checked && !o.disabled} onChange={(e) => o.onChange(e.target.checked)} />
+          <span className={`text-sm ${o.disabled ? 'text-slate-400' : ''}`}>{o.label}</span>
           <SendTags sends={o.sends} />
           {o.chip}
         </label>

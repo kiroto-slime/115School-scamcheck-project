@@ -86,3 +86,24 @@ describe('模型輪替', () => {
     expect(googleDay()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })
+
+describe('每分鐘冷卻', () => {
+  it('這一分鐘用完就顯示冷卻秒數，自動模式改推薦下一個', async () => {
+    mockModels(() => ok())
+    const s = S([{ id: 'a-1', daily: 20, rpm: 1, media: true }, { id: 'b-2', daily: 20, rpm: 5, media: true }])
+    await analyzeWithFallback(E, s, '你好', [])
+    const st = await modelStates(env.DB, s.gemini_models)
+    expect(st[0]).toMatchObject({ minute_left: 0, remaining: 19 })
+    expect(st[0].cooldown_seconds).toBeGreaterThan(0)
+    expect(st[1]).toMatchObject({ minute_left: 5, cooldown_seconds: 0 })
+    const { currentModel } = await import('../aimodels')
+    expect(currentModel(st)?.id).toBe('b-2')
+  })
+
+  it('Google 回報每分鐘額度滿：也記成冷卻中', async () => {
+    mockModels((m) => m === 'a-1' ? new Response('{"error":{"message":"per minute"}}', { status: 429 }) : ok())
+    const s = S([{ id: 'a-1', daily: 20, rpm: 5, media: true }, { id: 'b-2', daily: 20, rpm: 5, media: true }])
+    await analyzeWithFallback(E, s, '你好', [])
+    expect((await modelStates(env.DB, s.gemini_models))[0].minute_left).toBe(0)
+  })
+})

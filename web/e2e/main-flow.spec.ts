@@ -43,9 +43,11 @@ test('研究測驗流程：同意 → 前測 → 輔助 → 後測', async ({ pa
 test('導覽選單可用觸控操作（不依賴 hover）', async ({ page }) => {
   await page.goto('/')
   const menu = page.getByRole('button', { name: '選單' })
-  if (await menu.isVisible()) await menu.click() // 窄螢幕才有選單按鈕
-  await page.locator('#main-nav').getByRole('link', { name: '隱私與研究說明' }).click()
+  if (await menu.isVisible()) await menu.click() // 窄螢幕：漢堡選單；寬螢幕：左側導覽列
+  await page.locator('nav[aria-label="主選單"]:visible').getByRole('link', { name: '隱私與研究說明' }).click()
   await expect(page.getByRole('heading', { name: '隱私與研究說明', level: 1 })).toBeVisible()
+  // 寬螢幕：左側導覽列中目前頁面的選項有框起來（手機選單點完會自動收起）
+  if (!(await menu.isVisible())) await expect(page.locator('aside').getByRole('link', { name: '隱私與研究說明' })).toHaveClass(/border-teal-600/)
   await noHorizontalOverflow(page)
 })
 

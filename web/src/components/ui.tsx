@@ -2,15 +2,25 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { api, type Health } from '../api'
 
 let healthCache: Promise<Health> | null = null
+const healthListeners = new Set<(h: Health) => void>()
+
+/** 重新讀取系統狀態（AI 剩餘次數、冷卻秒數會變），所有用到 useHealth 的元件一起更新 */
+export function refreshHealth() {
+  healthCache = api<Health>('/api/health')
+  healthCache.then((h) => healthListeners.forEach((fn) => fn(h))).catch(() => { healthCache = null })
+}
+
 export function useHealth() {
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState(false)
   useEffect(() => {
+    healthListeners.add(setHealth)
     healthCache ??= api<Health>('/api/health')
     healthCache.then(setHealth).catch(() => {
       healthCache = null
       setError(true)
     })
+    return () => { healthListeners.delete(setHealth) }
   }, [])
   return { health, error }
 }
@@ -57,16 +67,20 @@ export function ModeBanner() {
   if (error) return <Alert kind="error">無法連線到後端服務，查核功能暫時無法使用。</Alert>
   if (!health) return null
   const m = health.modes
-  const items = [
-    m.ai !== 'gemini' ? 'AI：未設定金鑰（圖片、影片需手動輸入文字）' : m.ai_model ? `AI：可用（${m.ai_model}）` : 'AI：今日額度已用完',
-    m.research_mode === 'formal' ? '研究：正式' : '研究：模擬（DEMO）',
+  // 目前模型用完會自動換下一個，所以這裡顯示「現在輪到的模型」與它今天剩下的次數
+  const cur = m.ai_models?.find((x) => x.label === m.ai_model)
+  const items: [string, boolean][] = [
+    m.ai !== 'gemini'
+      ? ['AI：未設定金鑰（圖片、影片需手動輸入文字）', false]
+      : cur
+        ? [`AI 模型：${cur.label}（今日剩 ${cur.remaining} 次，用完自動換下一個）`, true]
+        : ['AI：今日免費額度已用完', false],
+    [m.research_mode === 'formal' ? '研究：正式' : '研究：模擬（DEMO）', m.research_mode === 'formal'],
   ]
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="系統狀態">
-      {items.map((t) => (
-        <span key={t} className={`pill ${t.includes('已啟用') || t.includes('可用') || t.includes('正式') ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
-          {t}
-        </span>
+      {items.map(([t, ok]) => (
+        <span key={t} className={`pill ${ok ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{t}</span>
       ))}
     </div>
   )

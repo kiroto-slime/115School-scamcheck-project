@@ -102,10 +102,11 @@ export interface AnalysisResult {
   extracted_text_preview?: string
 }
 
-export interface AiModelState { id: string; label: string; remaining: number; daily: number; media: boolean }
+export interface AiModelState { id: string; label: string; remaining: number; daily: number; media: boolean; minute_left: number; cooldown_seconds: number }
 
 /** 會被使用的模型：有圖片／影片時只看能分析媒體的 */
-export const currentAiModel = (models: AiModelState[] = [], needMedia = false) => models.find((m) => m.remaining > 0 && (!needMedia || m.media)) ?? null
+export const currentAiModel = (models: AiModelState[] = [], needMedia = false) =>
+  models.find((m) => m.remaining > 0 && m.minute_left > 0 && (!needMedia || m.media)) ?? null
 
 export interface UrlCheck { status: string; message: string; threats: { host_masked: string; detail: string }[] }
 
