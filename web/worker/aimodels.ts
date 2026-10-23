@@ -21,18 +21,20 @@ export interface ModelConf {
 export const DEFAULT_MODELS: ModelConf[] = [
   { id: 'gemini-3.8-flash', daily: 20, rpm: 5, media: true },
   { id: 'gemini-3.6-flash', daily: 20, rpm: 5, media: true },
-  { id: 'gemini-3-flash', daily: 20, rpm: 5, media: true },
+  { id: 'gemini-3-flash-preview', daily: 20, rpm: 5, media: true },
   { id: 'gemini-2.5-flash', daily: 20, rpm: 5, media: true },
   { id: 'gemini-3.5-flash-lite', daily: 500, rpm: 15, media: true },
   { id: 'gemini-3.1-flash-lite', daily: 500, rpm: 15, media: true },
   { id: 'gemini-2.5-flash-lite', daily: 20, rpm: 10, media: true },
   { id: 'gemma-4-31b-it', daily: 14400, rpm: 30, media: false },
+  { id: 'gemma-4-26b-a4b-it', daily: 14400, rpm: 30, media: false },
 ]
 
 /** gemini-3.5-flash-lite → Gemini 3.5 Flash Lite */
 export function modelLabel(id: string): string {
   return id
     .replace(/-it$/, '')
+    .replace(/-preview$/, '')
     .split('-')
     .map((w) => (/^\d/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(' ')

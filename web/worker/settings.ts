@@ -48,6 +48,8 @@ export async function getSettings(db: D1Database): Promise<AppSettings> {
       /* 壞掉的值忽略，使用預設 */
     }
   }
+  // 舊設定的錯誤代號（已用「列出可用模型」確認正確名稱）
+  s.gemini_models = s.gemini_models.map((m) => (m.id === 'gemini-3-flash' ? { ...m, id: 'gemini-3-flash-preview' } : m))
   return s
 }
 

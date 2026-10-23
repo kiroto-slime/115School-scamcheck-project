@@ -6,7 +6,7 @@ import { Alert, RiskBadge, Section, Spinner } from '../components/ui'
 const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同一事件）' }
 
 /** gemini-3.5-flash-lite → Gemini 3.5 Flash Lite */
-const modelName = (id: string) => id.replace(/-it$/, '').split('-').map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
+const modelName = (id: string) => id.replace(/-it$/, '').replace(/-preview$/, '').split('-').map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
 
 function AiBlock({ ai }: { ai: AnalysisResult['ai'] }) {
   if (ai.status === 'ok')
