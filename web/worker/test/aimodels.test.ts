@@ -131,3 +131,12 @@ describe('速度', () => {
     expect(r.fallback_note).toContain('回應太慢')
   })
 })
+
+describe('Google 忙碌', () => {
+  it('503 high demand：換下一個模型', async () => {
+    mockModels((m) => m === 'busy-1' ? new Response('{"error":{"code":503,"message":"high demand"}}', { status: 503 }) : ok())
+    const r = await analyzeWithFallback(E, S([{ id: 'busy-1', daily: 5, rpm: 5, media: true }, { id: 'b-2', daily: 5, rpm: 5, media: true }]), '你好', [])
+    expect(r).toMatchObject({ status: 'ok', model: 'b-2' })
+    expect(r.fallback_note).toContain('暫時太多人使用')
+  })
+})

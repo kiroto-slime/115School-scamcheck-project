@@ -160,6 +160,11 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         skipped.push(`${modelLabel(m.id)} 回應太慢`)
         continue
       }
+      // Google 那邊暫時太忙（503 high demand 等）：換下一個模型
+      if (e.status >= 500) {
+        skipped.push(`${modelLabel(m.id)} 暫時太多人使用`)
+        continue
+      }
       if (isNotFound(e)) {
         await bump(env.DB, day, badKey(m.id))
         skipped.push(`${modelLabel(m.id)} 無法使用`)
