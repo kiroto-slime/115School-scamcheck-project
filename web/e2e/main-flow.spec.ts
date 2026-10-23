@@ -100,6 +100,37 @@ test('375px 與桌面：深淺色及大字下各分頁均可閱讀', async ({ pa
   }
 })
 
+test('桌面與大字模式能完整顯示目前的 AI 模型選項', async ({ page }, info) => {
+  test.skip(info.project.name !== 'Desktop', '此情境檢查桌面模型選單寬度')
+  await page.route('**/api/health', async (route) => {
+    const response = await route.fetch()
+    const health = await response.json()
+    health.modes.ai = 'gemini'
+    health.modes.ai_model = 'Gemini 3.8 Flash'
+    health.modes.ai_models = [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', remaining: 8, daily: 20, media: true, minute_left: 5, cooldown_seconds: 0 }]
+    await route.fulfill({ response, json: health })
+  })
+  await page.goto('/check')
+  await page.locator('#service-settings > summary').click()
+  const model = page.getByLabel('選擇 AI 模型', { exact: true })
+  await expect(model).toContainText('自動（目前 Gemini 3.8 Flash，剩 8 次）')
+  for (const large of [false, true]) {
+    if (large) await page.getByRole('button', { name: '放大文字（大字模式）' }).click()
+    for (const width of [1280, 1024, 768]) {
+      await page.setViewportSize({ width, height: 900 })
+      const fits = await model.evaluate((element) => {
+        const select = element as HTMLSelectElement
+        const context = document.createElement('canvas').getContext('2d')!
+        context.font = getComputedStyle(select).font
+        // 預留左右內距與原生下拉箭頭，文字本身必須完整容納。
+        return context.measureText(select.selectedOptions[0].text).width + 40 <= select.clientWidth
+      })
+      expect(fits, `視窗 ${width}px，大字模式 ${large}`).toBe(true)
+      await noHorizontalOverflow(page)
+    }
+  }
+})
+
 // 1x1 PNG
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 

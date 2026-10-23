@@ -34,7 +34,7 @@ function ConclusionCard({ data }: { data: AnalysisResult }) {
   const reasons = mainReasons(data)
   const aiSummary = data.ai.status === 'ok' ? data.ai.summary : null
   return (
-    <section className={`space-y-4 rounded-2xl border-2 p-4 shadow-sm sm:p-6 ${tone}`} aria-labelledby="conclusion">
+    <section className={`conclusion-card space-y-4 rounded-2xl border-2 p-4 shadow-sm sm:p-6 ${tone}`} data-risk={data.risk_level} aria-labelledby="conclusion">
       <div className="flex flex-wrap items-center gap-3">
         <RiskBadge level={data.risk_level} />
         {data.risk_score !== null && <span className="text-sm text-slate-600">風險指數 {data.risk_score} / 100</span>}
@@ -47,7 +47,7 @@ function ConclusionCard({ data }: { data: AnalysisResult }) {
           <ul className="mt-1 list-disc space-y-1 pl-5">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
         </div>
       )}
-      <div className="rounded-xl bg-white/70 p-3">
+      <div className="conclusion-actions rounded-xl bg-white/70 p-3">
         <p className="font-medium">建議你這樣做</p>
         <ul className="mt-1 list-disc space-y-1 pl-5">{data.safe_actions.map((a) => <li key={a}>{a}</li>)}</ul>
       </div>

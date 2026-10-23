@@ -323,7 +323,7 @@ export default function Check() {
         </p>
         <p className="text-xs text-slate-500">外部查詢只會送至已勾選的服務，可展開下方設定調整。圖片、影片只有勾選 Gemini 時才會送到 Google，請勿上傳他人隱私。</p>
         <details className="setting-disclosure" id="service-settings">
-          <summary>查核設定<span className="disclosure-hint">服務與 AI 模型</span></summary>
+          <summary><span className="disclosure-label">查核設定<span className="disclosure-hint">服務與 AI 模型</span></span></summary>
           <div className="disclosure-content">
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
@@ -353,7 +353,7 @@ export default function Check() {
           </div>
         </details>
         <details className="setting-disclosure" id="research-consent">
-          <summary>參與匿名研究（選填）</summary>
+          <summary><span className="disclosure-label">參與匿名研究（選填）</span></summary>
           <div className="disclosure-content space-y-3">
         <label className="consent-row">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={consentB}
