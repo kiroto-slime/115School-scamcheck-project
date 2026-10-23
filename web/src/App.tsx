@@ -8,10 +8,12 @@ import Research from './pages/Research'
 import Privacy from './pages/Privacy'
 import Products from './pages/Products'
 import Admin from './pages/Admin'
+import History from './pages/History'
 import { useLargeText, useTheme } from './prefs'
 
 const NAV = [
   ['/check', '防詐查核'],
+  ['/history', '查核紀錄'],
   ['/research', '研究測驗'],
   ['/products', '產品構想'],
   ['/privacy', '隱私與研究說明'],
@@ -128,6 +130,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/check" element={<Check />} />
               <Route path="/result/:id" element={<Result />} />
+              <Route path="/history" element={<History />} />
               <Route path="/research" element={<Research />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/products" element={<Products />} />

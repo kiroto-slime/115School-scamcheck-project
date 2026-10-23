@@ -22,13 +22,43 @@ export function validateFile(file: File, mode: 'image' | 'video', maxMb: number)
   return null
 }
 
+type Draft = { mode: Mode; text: string; extra: string }
+const DRAFT_KEY = 'checkDraft'
+function readDraft(): Draft {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null')
+    if (d && ['text', 'image', 'video'].includes(d.mode)) return { mode: d.mode, text: String(d.text ?? ''), extra: String(d.extra ?? '') }
+  } catch {
+    /* 讀不到就用空白 */
+  }
+  return { mode: 'text', text: '', extra: '' }
+}
+function saveDraft(d: Draft) {
+  try {
+    if (d.text || d.extra) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d))
+    else sessionStorage.removeItem(DRAFT_KEY)
+  } catch {
+    /* 無痕模式等：不影響使用 */
+  }
+}
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY)
+  } catch {
+    /* 略過 */
+  }
+}
+
 export default function Check() {
   const { health } = useHealth()
   const limits = health?.limits ?? { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 }
   const nav = useNavigate()
-  const [mode, setMode] = useState<Mode>('text')
-  const [text, setText] = useState('')
-  const [extra, setExtra] = useState('')
+  // 草稿存在 sessionStorage：重新整理還在，關掉分頁就清除（不上傳）
+  const [draft] = useState(readDraft)
+  const [mode, setMode] = useState<Mode>(draft.mode)
+  const [text, setText] = useState(draft.text)
+  const [extra, setExtra] = useState(draft.extra)
+  useEffect(() => saveDraft({ mode, text, extra }), [mode, text, extra])
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
@@ -98,6 +128,13 @@ export default function Check() {
   const [consentB, setConsentB] = useState(false)
   const [consentC, setConsentC] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  // 分析進行中重新整理或關分頁：瀏覽器先問一次，避免分析中斷、結果不見
+  useEffect(() => {
+    if (!busy) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [busy])
   const [error, setError] = useState<string | null>(null)
   const [manualHint, setManualHint] = useState<string | null>(null)
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
@@ -195,6 +232,7 @@ export default function Check() {
         return
       }
       refreshHealth() // AI 次數變了
+      clearDraft()
       nav(`/result/${result.analysis_id}`, { state: result })
     } catch (err) {
       setError(err instanceof ApiError || (err instanceof Error && /[一-鿿]/.test(err.message)) ? err.message : '發生未預期的錯誤，請稍後再試。')
@@ -275,7 +313,7 @@ export default function Check() {
         <legend className="sr-only">資料處理與同意</legend>
         <p className="text-sm text-slate-700">
           <strong>A. 必要處理：</strong>送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；
-          分析結果（不含原文）暫存 24 小時後自動刪除。<Link to="/privacy">詳細說明</Link>
+          分析結果（不含原文）保存 30 天後自動刪除。<Link to="/privacy">詳細說明</Link>
         </p>
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },

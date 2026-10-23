@@ -30,7 +30,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   google_daily_limit: 1000,
   virustotal_daily_limit: 450,
   consent_version: '2026.10-v0.2',
-  temp_retention_hours: 24,
+  // 未同意研究的分析結果（不含原文）保存 30 天，讓使用者能從「查核紀錄」回來看
+  temp_retention_hours: 720,
   research_retention_days: 365,
 }
 

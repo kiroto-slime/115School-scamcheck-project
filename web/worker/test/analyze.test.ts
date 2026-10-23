@@ -34,6 +34,9 @@ describe('文字查核', () => {
     expect(row!.result_json).not.toContain('包裹地址錯誤')
     expect(row!.result_json).not.toContain('bit.ly/abc')
     expect(row!.expires_at).toBeTruthy() // 未同意研究：只暫存
+    const days = (Date.parse(row!.expires_at) - Date.now()) / 86_400_000
+    expect(days).toBeGreaterThan(29.9) // 保存 30 天
+    expect(days).toBeLessThan(30.1)
     expect(row!.consent_research).toBe(0)
   })
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { api, ApiError, formatTime, postJson, researchId, type AnalysisResult } from '../api'
 import { Alert, RiskBadge, Section, Spinner } from '../components/ui'
+import { addHistory } from '../history'
 
 const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同一事件）' }
 
@@ -85,6 +86,12 @@ export default function Result() {
     if (data?.analysis_id === id) return
     api<AnalysisResult>(`/api/analysis/${id}`).then(setData).catch((e) => setError(e instanceof ApiError ? e.message : '讀取失敗'))
   }, [id, data?.analysis_id])
+
+  // 看過的結果記到這台裝置的「查核紀錄」（不含原文）
+  useEffect(() => {
+    if (!data || data.analysis_id !== id) return
+    addHistory({ id: data.analysis_id, at: data.created_at, level: data.risk_level, score: data.risk_score, media: data.media_type, reason: mainReasons(data)[0] ?? null })
+  }, [data, id])
 
   if (error) return <Alert kind="error">{error} <Link to="/check">重新查核</Link></Alert>
   if (!data) return <Spinner label="載入結果中…" />
