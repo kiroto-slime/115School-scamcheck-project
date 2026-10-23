@@ -70,7 +70,7 @@ export default function App() {
         </Routes>
       </main>
       <footer className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">
-        <p>識詐數據庫 v0.1（高中專題研究原型）。分析結果僅供參考，不是司法認定或正式詐騙判決。</p>
+        <p>識詐數據庫 v0.2（高中專題研究原型）。分析結果僅供參考，不是司法認定或正式詐騙判決。</p>
         <p className="mt-1">遇到可疑狀況請撥打 165 反詐騙諮詢專線。 · <Link to="/privacy">隱私政策</Link></p>
       </footer>
     </div>
