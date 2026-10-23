@@ -126,6 +126,15 @@ describe('Gemini', () => {
     expect((await g.analyze('測試', [], 1)).status).toBe('ok')
     expect((await g.analyze('測試', [], 1)).status).toBe('rate_limited')
   })
+
+  it('fetch 不能以物件方法呼叫（模擬 Cloudflare 的 Illegal invocation）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(function (this: unknown) {
+      if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation')
+      return Promise.resolve(geminiReply(GOOD))
+    } as typeof fetch)
+    const out = await new Gemini({ ...env, ...GEMINI } as Env, 'gemini-3.8-flash').testConnection()
+    expect(out).toMatchObject({ ok: true })
+  })
 })
 
 describe('圖片與影片', () => {

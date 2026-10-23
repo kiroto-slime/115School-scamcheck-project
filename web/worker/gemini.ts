@@ -74,6 +74,7 @@ async function errorMessage(r: Response): Promise<string> {
     /* 非 JSON */
   }
   if (detail.includes('API key not valid') || detail.includes('API_KEY_INVALID')) return 'Gemini API 金鑰無效，請重新複製 GEMINI_API_KEY（注意前後不要有空白）。'
+  if (detail.includes('location is not supported')) return 'Google 不支援目前伺服器所在地區使用 Gemini API，請稍後再試。'
   const base = ERROR_ZH[r.status] ?? `Gemini 服務暫時無法使用（${r.status}）。`
   return detail ? `${base}（Google 訊息：${detail}）` : base
 }
@@ -101,7 +102,8 @@ function parseJsonLoose(text: string): Record<string, unknown> {
 }
 
 export class Gemini {
-  constructor(private env: Env, private model: string, private fetcher: typeof fetch = fetch, private retryDelayMs = 1500) {}
+  // 預設用箭頭函式包住 fetch：Cloudflare 直接以物件方法呼叫 fetch 會出現 Illegal invocation
+  constructor(private env: Env, private model: string, private fetcher: typeof fetch = (input, init) => fetch(input, init), private retryDelayMs = 1500) {}
 
   private headers(extra: Record<string, string> = {}) {
     return { 'x-goog-api-key': this.env.GEMINI_API_KEY ?? '', ...extra }
