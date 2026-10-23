@@ -39,7 +39,7 @@ export interface Health {
     cofacts: 'live' | 'off'
     google: 'live' | 'off'
     virustotal: 'live' | 'off'
-    tw165: { available: boolean; updated_at: string | null; count: number }
+    tw165: { available: boolean; origin?: string | null; updated_at: string | null; count: number }
     ai: 'disabled' | 'gemini'
     ai_model: string | null
     research_mode: 'simulation' | 'formal'

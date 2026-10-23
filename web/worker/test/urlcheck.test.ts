@@ -122,3 +122,21 @@ describe('Google 與 VirusTotal', () => {
     expect(factCheckQuery('看 https://a.b/c [手機]')).toBe('看')
   })
 })
+
+describe('管理頁上傳 165 名單', () => {
+  it('上傳後改用新名單（比部署內建的新）；未登入不能上傳', async () => {
+    const { adminHeaders } = await import('./helpers')
+    expect((await call('/api/admin/tw165/meta', { method: 'PUT', body: { count: 1000, sources: [] } })).status).toBe(401)
+    const h = await adminHeaders()
+    const key = await shard('new-scam.shop')
+    const up = await call('/api/admin/tw165/shards', { method: 'PUT', raw: `${key}\t{"new-scam.shop":["s","2026-10","電子商務"]}`, headers: h })
+    expect(up.json).toEqual({ saved: 1 })
+    expect((await call('/api/admin/tw165/shards', { method: 'PUT', raw: 'zz\t{}', headers: h })).status).toBe(422)
+    const m = await call('/api/admin/tw165/meta', { method: 'PUT', body: { count: 1000, sources: [{ code: 's', name: '涉詐網站', page: 'https://data.gov.tw/dataset/176455', rows: 1000 }] }, headers: h })
+    expect(m.status).toBe(200)
+    const e = { ...env, ASSETS: await fakeAssets() } as Env
+    const r = await tw165Lookup(e, extractUrls('https://new-scam.shop'))
+    expect(r.status).toBe('listed')
+    expect((await call('/api/health', { envOverride: { ASSETS: await fakeAssets() } })).json.modes.tw165).toMatchObject({ origin: 'upload', count: 1000 })
+  })
+})

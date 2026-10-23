@@ -132,6 +132,32 @@ guarded.put('/settings', async (c) => {
   return c.json({ updated: true })
 })
 
+/** 165 名單：瀏覽器整理好的分片，一次送多片（每行「兩碼分片<Tab>JSON」），Worker 不解析 JSON 以節省 CPU */
+guarded.put('/tw165/shards', async (c) => {
+  const body = await c.req.text()
+  if (body.length > 4_000_000) throw new HttpError(413, '一次上傳太多，請重新整理頁面後再試。')
+  const lines = body.split('\n').filter(Boolean)
+  for (const line of lines) {
+    const tab = line.indexOf('\t')
+    const key = line.slice(0, tab)
+    const json = line.slice(tab + 1)
+    if (tab !== 2 || !/^[0-9a-f]{2}$/.test(key) || !json.startsWith('{') || !json.endsWith('}')) throw new HttpError(422, '名單格式不正確，請使用管理頁的更新按鈕上傳。')
+    await c.env.TW165.put(`shard:${key}`, json)
+  }
+  return c.json({ saved: lines.length })
+})
+
+guarded.put('/tw165/meta', async (c) => {
+  const b = await readBody(c, z.object({
+    count: z.number().int().min(1000),
+    sources: z.array(z.object({ code: z.enum(['s', 'i']), name: z.string().max(80), page: z.string().url(), rows: z.number().int().min(0) })).min(1).max(2),
+  }))
+  const meta = { available: true, updated_at: nowIso(), count: b.count, sources: b.sources }
+  await c.env.TW165.put('meta', JSON.stringify(meta))
+  await audit(c.env.DB, c.get('admin'), 'update_tw165', null, `${b.count} 筆`)
+  return c.json(meta)
+})
+
 guarded.post('/ai/test', async (c) => {
   const s = c.get('settings')
   if (aiMode(c.env) !== 'gemini') return c.json({ ok: false, model: s.gemini_model, message: '尚未設定 GEMINI_API_KEY（請在 Cloudflare 後台的 Variables and Secrets 新增）。' })

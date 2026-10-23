@@ -78,6 +78,8 @@ async function sha256Hex(s: string) {
 
 export interface Tw165Meta {
   available: boolean
+  /** build：部署時內建；upload：管理員從管理頁上傳 */
+  origin?: 'build' | 'upload'
   updated_at?: string
   count?: number
   sources?: { code: string; name: string; page: string; rows: number }[]
@@ -116,7 +118,25 @@ async function readAsset<T>(env: Env, path: string): Promise<T | null> {
   }
 }
 
-export const tw165Meta = async (env: Env): Promise<Tw165Meta> => (await readAsset<Tw165Meta>(env, 'meta.json')) ?? { available: false }
+async function readKv<T>(env: Env, key: string): Promise<T | null> {
+  try {
+    return await env.TW165.get<T>(key, 'json')
+  } catch {
+    return null
+  }
+}
+
+/** 部署內建與管理員上傳兩份名單，用比較新的那份 */
+export async function tw165Meta(env: Env): Promise<Tw165Meta> {
+  const [built, uploaded] = await Promise.all([readAsset<Tw165Meta>(env, 'meta.json'), readKv<Tw165Meta>(env, 'meta')])
+  const b = built?.available ? { ...built, origin: 'build' as const } : null
+  const u = uploaded?.available ? { ...uploaded, origin: 'upload' as const } : null
+  if (b && u) return (u.updated_at ?? '') >= (b.updated_at ?? '') ? u : b
+  return u ?? b ?? { available: false }
+}
+
+const readShard = (env: Env, meta: Tw165Meta, key: string) =>
+  meta.origin === 'upload' ? readKv<Record<string, [string, string, string]>>(env, `shard:${key}`) : readAsset<Record<string, [string, string, string]>>(env, `${key}.json`)
 
 export async function tw165Lookup(env: Env, urls: FoundUrl[]): Promise<Tw165Result> {
   const meta = await tw165Meta(env)
@@ -128,7 +148,7 @@ export async function tw165Lookup(env: Env, urls: FoundUrl[]): Promise<Tw165Resu
   for (const { host } of urls) {
     for (const cand of candidates(host)) {
       const key = (await sha256Hex(cand)).slice(0, 2)
-      if (!shards.has(key)) shards.set(key, await readAsset(env, `${key}.json`))
+      if (!shards.has(key)) shards.set(key, await readShard(env, meta, key))
       const hit = shards.get(key)?.[cand]
       if (hit) {
         matches.push({ host_masked: maskHost(host), lists: [...hit[0]].map((c) => TW165_SOURCE_NAME[c] ?? c), month: hit[1], category: hit[2] })

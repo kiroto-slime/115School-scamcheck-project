@@ -34,7 +34,7 @@ app.get('/health', async (c) => {
       cofacts: cofactsMode(s),
       google: googleMode(c.env),
       virustotal: virusTotalMode(c.env),
-      tw165: { available: tw165.available, updated_at: tw165.updated_at ?? null, count: tw165.count ?? 0 },
+      tw165: { available: tw165.available, origin: tw165.origin ?? null, updated_at: tw165.updated_at ?? null, count: tw165.count ?? 0 },
       ai: aiMode(c.env),
       ai_model: aiMode(c.env) === 'gemini' ? s.gemini_model : null,
       research_mode: s.research_mode,

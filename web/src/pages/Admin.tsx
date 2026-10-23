@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, formatTime, postJson } from '../api'
 import { Alert, Section, Spinner } from '../components/ui'
 import { buildWorkbook, downloadBlob, type ExportData } from '../excel'
+import { buildUploadChunks, parseCsvFiles, TW165_DATASETS } from '../tw165'
 
 const TOKEN_KEY = 'scamcheck_admin_token'
 const getToken = () => { try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null } }
@@ -296,6 +297,7 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
             : <button className="btn-danger" onClick={() => setConfirmClear(true)}>清除測試資料</button>}
         </div>
       </Section>
+      <Tw165Updater call={call} onDone={onDone} onError={onError} />
       <Section title="操作紀錄（最近 100 筆）">
         <ul className="max-h-72 space-y-1 overflow-y-auto text-xs">{logs?.map((l, i) => <li key={i} className="border-b py-1">{formatTime(l.created_at)} · {l.actor} · {l.action} {l.target ?? ''} {l.detail ?? ''}</li>)}</ul>
       </Section>
@@ -346,3 +348,51 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
     </div>
   )
 }
+
+/** 165 涉詐網站名單：下載政府 CSV → 選檔 → 在瀏覽器整理後上傳 */
+function Tw165Updater({ call, onDone, onError }: { call: Call; onDone: (s: string) => void; onError: (s: string) => void }) {
+  const [meta, setMeta] = useState<{ available: boolean; origin?: string; updated_at: string | null; count: number } | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const load = useCallback(() => { api<{ modes: { tw165: typeof meta } }>('/api/health').then((h) => setMeta(h.modes.tw165)).catch(() => setMeta(null)) }, [])
+  useEffect(load, [load])
+  const days = meta?.updated_at ? Math.floor((Date.now() - Date.parse(meta.updated_at)) / 86_400_000) : null
+  const update = async () => {
+    try {
+      setBusy('讀取檔案中…')
+      const { map, sources } = parseCsvFiles(await Promise.all(files.map((f) => f.text())))
+      if (map.size < 1000) throw new Error('檔案內的網域太少，可能下載不完整，請重新下載。')
+      setBusy(`整理 ${map.size.toLocaleString()} 個網域中…`)
+      const chunks = await buildUploadChunks(map)
+      for (let i = 0; i < chunks.length; i++) {
+        setBusy(`上傳中（${i + 1}/${chunks.length}）…`)
+        if (!(await call('/api/admin/tw165/shards', { method: 'PUT', body: chunks[i] }))) return
+      }
+      if (await call('/api/admin/tw165/meta', { method: 'PUT', body: JSON.stringify({ count: map.size, sources }) })) {
+        onDone(`165 名單已更新：${map.size.toLocaleString()} 個網域，立即生效`)
+        setFiles([])
+        load()
+      }
+    } catch (e) {
+      onError(e instanceof Error ? e.message : '更新失敗')
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <Section title="165 涉詐網站名單">
+      {meta?.available ? (
+        <p className="text-sm">目前使用：{meta.origin === 'upload' ? '管理員上傳' : '部署時內建'} · {meta.count.toLocaleString()} 個網域 · 更新於 {formatTime(meta.updated_at!)}</p>
+      ) : <Alert kind="warn">目前沒有可用的 165 名單，請依下面步驟上傳。</Alert>}
+      {days !== null && days >= 14 && <Alert kind="warn">名單已經 {days} 天沒有更新，建議重新上傳。</Alert>}
+      <ol className="list-decimal space-y-1 pl-5 text-sm">
+        <li>下載政府最新資料：{TW165_DATASETS.map((d, i) => <span key={d.code}>{i > 0 && '、'}<a href={d.download} rel="noopener noreferrer">{d.code === 's' ? '涉詐網站' : '假投資網站'} CSV</a></span>)}</li>
+        <li>選擇剛下載的兩個檔案（可一次選兩個）</li>
+        <li>按「更新名單」，約 10 秒，完成後立即生效</li>
+      </ol>
+      <input type="file" accept=".csv,text/csv" multiple className="block w-full text-sm" onChange={(e) => setFiles([...(e.target.files ?? [])])} />
+      <button className="btn-primary" disabled={!files.length || Boolean(busy)} onClick={update}>{busy ?? '更新名單'}</button>
+    </Section>
+  )
+}
+

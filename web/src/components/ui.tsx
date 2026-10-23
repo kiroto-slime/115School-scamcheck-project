@@ -58,7 +58,6 @@ export function ModeBanner() {
   if (!health) return null
   const m = health.modes
   const items = [
-    m.cofacts === 'live' ? 'Cofacts：已啟用' : 'Cofacts：已關閉（不查詢）',
     m.ai === 'gemini' ? `AI：Gemini 可用（${m.ai_model}）` : 'AI：未設定金鑰（圖片、影片需手動輸入文字）',
     m.research_mode === 'formal' ? '研究：正式' : '研究：模擬（DEMO）',
   ]
