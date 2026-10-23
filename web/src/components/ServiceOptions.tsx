@@ -34,9 +34,9 @@ function Icon({ name }: { name: string }) {
 
 function SendTags({ sends }: { sends: ServiceOption['sends'] }) {
   return (
-    <span className="flex flex-wrap gap-1">
+    <span className="service-tags">
       {sends.map((s) => (
-        <span key={s} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"><Icon name={s} />{s}</span>
+        <span key={s} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-600"><Icon name={s} />{s}</span>
       ))}
     </span>
   )
@@ -71,23 +71,32 @@ function SelectAll({ options }: { options: ServiceOption[] }) {
 }
 
 export function ServiceOptions({ options }: { options: ServiceOption[] }) {
+  const descriptions: Record<string, string> = {
+    cofacts: '比對公開查核資料', ai: '協助解釋內容中的風險', google: '查詢網址安全及公開查核文章', vt: '查詢網域已有的安全報告',
+  }
   return (
-    <div className="space-y-1">
+    <div className="space-y-3">
       <p className="text-sm font-medium text-slate-700">要一起查詢的服務</p>
       {options.length > 1 && <SelectAll options={options} />}
-      <div className="flex min-h-11 items-center gap-3 text-sm text-slate-700">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-600 text-white" aria-hidden="true">
+      <div className="service-row text-sm text-slate-700">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center text-teal-700" aria-hidden="true">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3"><path d="m5 12 5 5 9-10" /></svg>
         </span>
-        規則分析、165 涉詐網站名單<span className="text-xs text-slate-500">（一定執行，不送出）</span>
+        <span className="min-w-0 flex-1">規則分析、165 涉詐網站名單<span className="block text-xs text-slate-500">基本檢查，一定執行，不送出</span></span>
+        <span className="text-xs text-slate-500">基本</span>
       </div>
       {options.map((o) => (
-        <label key={o.key} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1">
-          <input type="checkbox" className="h-5 w-5 shrink-0" disabled={o.disabled} checked={o.checked && !o.disabled} onChange={(e) => o.onChange(e.target.checked)} />
-          <span className={`text-sm ${o.disabled ? 'text-slate-400' : ''}`}>{o.label}</span>
+        <div key={o.key} className={`service-row ${o.key === 'ai' ? 'ai-service-row' : ''}`} data-service={o.key}>
+          <label className="service-main">
+            <input type="checkbox" className="h-5 w-5 shrink-0" disabled={o.disabled} checked={o.checked && !o.disabled} onChange={(e) => o.onChange(e.target.checked)} />
+            <span className="min-w-0 text-sm">
+              <span>{o.label}</span>
+              <span className="block text-xs text-slate-500">{descriptions[o.key]}</span>
+            </span>
+          </label>
+          {o.chip && <div className="service-chip">{o.chip}</div>}
           <SendTags sends={o.sends} />
-          {o.chip}
-        </label>
+        </div>
       ))}
       <details className="rounded-xl bg-slate-50 p-3">
         <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-teal-800">查看更多：這些服務會收到什麼？</summary>

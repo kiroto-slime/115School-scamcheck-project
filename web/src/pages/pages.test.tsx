@@ -71,6 +71,8 @@ describe('Check page', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
     refreshHealth()
     render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
+    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
     const all = await screen.findByRole('checkbox', { name: '全選' })
     const vt = screen.getByRole('checkbox', { name: /VirusTotal/ })
     expect(vt).not.toBeChecked()
@@ -79,7 +81,7 @@ describe('Check page', () => {
     await userEvent.click(all)
     expect(vt).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).toBeChecked()
-    expect(screen.getByLabelText(/B.（自願）/)).not.toBeChecked()
+    expect(screen.getByLabelText(/協助校內研究（選填）/)).not.toBeChecked()
     await userEvent.click(all)
     expect(vt).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).not.toBeChecked()
@@ -88,10 +90,18 @@ describe('Check page', () => {
   it('consent C is disabled until B is checked', async () => {
     mockFetch(() => ({}))
     render(<MemoryRouter><Check /></MemoryRouter>)
-    const c = screen.getByLabelText(/C.（自願）/)
+    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
+    const b = screen.getByLabelText(/協助校內研究（選填）/)
+    const c = screen.getByLabelText(/教育產品與商業研究（選填）/)
     expect(c).toBeDisabled()
-    await userEvent.click(screen.getByLabelText(/B.（自願）/))
+    expect(b).not.toBeChecked()
+    await userEvent.click(b)
     expect(c).toBeEnabled()
+    await userEvent.click(c)
+    expect(c).toBeChecked()
+    await userEvent.click(b)
+    expect(c).toBeDisabled()
+    expect(c).not.toBeChecked()
   })
 })
 
@@ -149,6 +159,7 @@ describe('AI 模型冷卻', () => {
     serve(withAi(0))
     refreshHealth()
     render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
     const box = await screen.findByRole('checkbox', { name: /使用 Gemini AI 分析/ })
     await new Promise((r) => setTimeout(r, 2200))
     expect(box).toBeEnabled()
@@ -160,6 +171,7 @@ describe('AI 模型冷卻', () => {
     serve(withAi(2))
     refreshHealth()
     render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
     const box = await screen.findByRole('checkbox', { name: /使用 Gemini AI 分析/ })
     await waitFor(() => expect(box).toBeDisabled())
     expect(screen.getByText(/AI 冷卻中/)).toBeInTheDocument()
@@ -175,11 +187,48 @@ describe('其他服務冷卻', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
     refreshHealth()
     render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
     const vt = await screen.findByRole('checkbox', { name: /VirusTotal/ })
     expect(vt).toBeDisabled()
     expect(screen.getByText(/冷卻中，\d+ 秒後可用/)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Google 網址安全/ })).toBeDisabled()
     expect(screen.getByText('今日次數已用完')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).toBeEnabled()
+  })
+})
+
+describe('查核設定收合與模型選擇', () => {
+  it('收合保留服務與模型選擇，送出仍使用原旗標且不建立研究同意', async () => {
+    sessionStorage.clear()
+    const body = { ...health, modes: { ...health.modes, ai: 'gemini', ai_model: 'Gemini A', google: 'live', virustotal: 'live',
+      ai_models: [
+        { id: 'a-1', label: 'Gemini A', remaining: 20, daily: 20, media: true, minute_left: 5, cooldown_seconds: 0 },
+        { id: 'b-2', label: 'Gemini B', remaining: 10, daily: 10, media: true, minute_left: 5, cooldown_seconds: 0 },
+      ] } }
+    const submitted: { url: string; body: Record<string, unknown> }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== '/api/health') submitted.push({ url, body: JSON.parse(String(init?.body)) })
+      return new Response(JSON.stringify(url === '/api/health' ? body : result), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    refreshHealth()
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    const settings = screen.getByText('查核設定')
+    expect(settings.closest('details')).not.toHaveAttribute('open')
+    await userEvent.click(settings)
+    const ai = await screen.findByRole('checkbox', { name: /使用 Gemini AI 分析/ })
+    await userEvent.selectOptions(screen.getByLabelText('選擇 AI 模型'), 'b-2')
+    expect(ai).toBeChecked()
+    await userEvent.click(screen.getByRole('checkbox', { name: /Cofacts/ }))
+    await userEvent.click(settings)
+    await userEvent.click(settings)
+    expect(ai).toBeChecked()
+    expect(screen.getByLabelText('選擇 AI 模型')).toHaveValue('b-2')
+    expect(screen.getByRole('checkbox', { name: /Cofacts/ })).not.toBeChecked()
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    await screen.findByText('結果頁')
+    expect(submitted).toEqual([{ url: '/api/analyze/text', body: {
+      text: '請立即匯款', query_cofacts: false, query_google: true, query_virustotal: false, use_ai: true, ai_model: 'b-2',
+    } }])
   })
 })

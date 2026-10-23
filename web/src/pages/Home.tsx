@@ -14,22 +14,32 @@ export default function Home() {
           並以匿名研究了解「哪些詐騙特徵最容易被忽略」。
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Link to="/check" className="btn-primary no-underline hover:no-underline">開始防詐查核</Link>
-          <Link to="/research" className="btn-secondary no-underline hover:no-underline">參加匿名研究測驗</Link>
+          <Link to="/check" className="btn-primary no-underline hover:no-underline">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="7.5" /><path d="m16 16 5 5" />
+            </svg>
+            開始防詐查核
+          </Link>
+          <Link to="/research" className="btn-secondary no-underline hover:no-underline">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-2 7-2 10 1 3-3 7-3 10-1V4c-3-1-7-2-10 1" />
+            </svg>
+            參加匿名研究測驗
+          </Link>
         </div>
       </section>
 
-      <section className="card space-y-2">
-        <h2>研究計畫</h2>
+      <details className="card home-disclosure">
+        <summary>研究計畫</summary>
         <p>
           本專題為三重商工資料處理科學生團隊的專題。研究測驗會請你先自行判斷一則模擬訊息，
           再看過指定的查核輔助後判斷另一則難度相同的訊息，以比較不同輔助方式的效果。
           研究資料採匿名編號、需你主動同意，可隨時撤回與刪除。詳見 <Link to="/privacy">隱私與研究說明</Link>。
         </p>
-      </section>
+      </details>
 
-      <section className="card space-y-2">
-        <h2>功能與限制</h2>
+      <details className="card home-disclosure">
+        <summary>查看更多：功能與限制</summary>
         <ul className="list-disc space-y-1 pl-5 text-sm sm:text-base">
           <li>文字：規則分析＋Cofacts「真的假的」查核比對（可自行選擇不送出）。上限 {l?.max_text_chars ?? 10000} 字。</li>
           <li>
@@ -44,7 +54,7 @@ export default function Home() {
           <li>AI 分析：設定 Google Gemini API 金鑰後啟用，可分析文字、圖片與影片（含聲音）。內容會傳送到 Google，使用者可自行選擇不使用。</li>
           <li>上傳的文字、圖片、影片只做暫時處理，本網站不永久保存。網站架設在 Cloudflare，24 小時運作。</li>
         </ul>
-      </section>
+      </details>
     </div>
   )
 }

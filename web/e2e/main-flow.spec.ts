@@ -12,6 +12,7 @@ test('主要查核流程：輸入文字 → 結果頁', async ({ page }) => {
   await page.getByRole('link', { name: '開始防詐查核' }).click()
   await page.getByLabel(/貼上可疑訊息/).fill('【物流通知】您的包裹地址錯誤，請於24小時內點擊 https://bit.ly/abc 更新資料並支付手續費。')
   // 不送 Cofacts：測試結果才不會受外部資料影響
+  await page.locator('#service-settings > summary').click()
   await page.getByLabel(/送至 Cofacts/).uncheck()
   await page.getByRole('button', { name: '開始查核' }).click()
   await expect(page.getByRole('heading', { name: '查核結果', exact: true })).toBeVisible()
@@ -48,11 +49,55 @@ test('導覽選單可用觸控操作（不依賴 hover）', async ({ page }) => 
   await page.goto('/')
   const menu = page.getByRole('button', { name: '選單' })
   if (await menu.isVisible()) await menu.click() // 窄螢幕：漢堡選單；寬螢幕：左側導覽列
-  await page.locator('nav[aria-label="主選單"]:visible').getByRole('link', { name: '隱私與研究說明' }).click()
+  await page.locator('nav[aria-label="主選單"]:visible').getByRole('link', { name: '隱私與說明' }).click()
   await expect(page.getByRole('heading', { name: '隱私與研究說明', level: 1 })).toBeVisible()
   // 寬螢幕：左側導覽列中目前頁面的選項有框起來（手機選單點完會自動收起）
-  if (!(await menu.isVisible())) await expect(page.locator('aside').getByRole('link', { name: '隱私與研究說明' })).toHaveClass(/border-teal-600/)
+  if (!(await menu.isVisible())) await expect(page.locator('aside').getByRole('link', { name: '隱私與說明' })).toHaveAttribute('aria-current', 'page')
   await noHorizontalOverflow(page)
+})
+
+test('閱讀工具不重疊、頂端固定且平順回到真正頂端', async ({ page }) => {
+  await page.goto('/privacy')
+  const font = page.getByRole('button', { name: '放大文字（大字模式）' })
+  const top = page.getByRole('button', { name: '回到頁面頂端' })
+  await expect(top).toBeHidden()
+  const original = await font.boundingBox()
+  await page.keyboard.press('Control+End')
+  await expect(top).toBeVisible()
+  await expect.poll(async () => {
+    const upper = await font.boundingBox()
+    const lower = await top.boundingBox()
+    return lower!.y - upper!.y - upper!.height
+  }).toBeCloseTo(10, 0)
+  expect((await top.boundingBox())!.y).toBeCloseTo(original!.y, 0)
+  expect(await page.locator('header').evaluate((el) => el.getBoundingClientRect().top)).toBe(0)
+  await top.click()
+  await expect(top).toBeHidden()
+  expect(await page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1)
+  await noHorizontalOverflow(page)
+})
+
+test('375px 與桌面：深淺色及大字下各分頁均可閱讀', async ({ page }, info) => {
+  test.skip(info.project.name !== 'Desktop', '固定寬度的全站版面巡檢只需執行一次')
+  for (const width of [375, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/check')
+    await page.getByRole('button', { name: '放大文字（大字模式）' }).click()
+    for (const dark of [false, true]) {
+      const currentlyDark = await page.locator('html').evaluate((el) => el.classList.contains('dark'))
+      if (currentlyDark !== dark) await page.getByRole('button', { name: /切換成.*色模式/ }).click()
+      for (const path of ['/', '/check', '/history', '/research', '/products', '/privacy', '/admin']) {
+        await page.goto(path)
+        await expect(page.locator('h1')).toBeVisible()
+        if (path === '/check') {
+          await page.locator('#service-settings > summary').click()
+          await page.locator('#research-consent > summary').click()
+        }
+        await noHorizontalOverflow(page)
+      }
+    }
+    await page.getByRole('button', { name: '恢復一般文字大小' }).click()
+  }
 })
 
 // 1x1 PNG

@@ -243,22 +243,26 @@ export default function Check() {
 
   const tabs: [Mode, string][] = [['text', '文字訊息'], ['image', '圖片截圖'], ['video', '短影片']]
   return (
-    <form className="space-y-4" onSubmit={submit} noValidate>
+    <form className="check-form space-y-5" onSubmit={submit} noValidate>
       <h1>防詐查核</h1>
-      <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="輸入類型">
+      <div className="card check-workbench space-y-5">
+      <div className="input-tabs" role="tablist" aria-label="輸入類型">
         {tabs.map(([m, label]) => (
           <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => switchMode(m)}
-            className={mode === m ? 'btn-primary' : 'btn-secondary'}>
+            className="input-tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {m === 'text' ? <path d="M4 6h16M4 12h14M4 18h9" /> : m === 'image' ? <><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1" /><path d="m3 17 5-5 4 4 4-5 5 6" /></> : <><rect x="2" y="5" width="14" height="14" rx="3" /><path d="m16 9 6-3v12l-6-3" /></>}
+            </svg>
             {label}
           </button>
         ))}
       </div>
 
-      <div className="card space-y-3">
+      <div className="space-y-3">
         {mode === 'text' ? (
           <div>
             <label htmlFor="text" className="label">貼上可疑訊息、廣告或對話內容</label>
-            <textarea id="text" className="input min-h-40" value={text} maxLength={limits.max_text_chars}
+            <textarea id="text" className="input min-h-52" value={text} maxLength={limits.max_text_chars}
               onChange={(e) => setText(e.target.value)} placeholder="例如：您的包裹地址有誤，請點擊連結更新…" />
             <div className="mt-1 flex flex-wrap items-start justify-between gap-2 text-xs text-slate-500">
               <p>IG、Facebook 貼文的內容網站讀不到，請截圖或錄影後上傳。</p>
@@ -308,19 +312,25 @@ export default function Check() {
           </>
         )}
       </div>
+      </div>
 
       <fieldset className="card space-y-3">
         <legend className="sr-only">資料處理與同意</legend>
+        <h2 className="text-sm font-medium">資料處理說明</h2>
         <p className="text-sm text-slate-700">
-          <strong>A. 必要處理：</strong>送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；
+          送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；
           分析結果（不含原文）保存 30 天後自動刪除。<Link to="/privacy">詳細說明</Link>
         </p>
+        <p className="text-xs text-slate-500">外部查詢只會送至已勾選的服務，可展開下方設定調整。圖片、影片只有勾選 Gemini 時才會送到 Google，請勿上傳他人隱私。</p>
+        <details className="setting-disclosure" id="service-settings">
+          <summary>查核設定<span className="disclosure-hint">服務與 AI 模型</span></summary>
+          <div className="disclosure-content">
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
           aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi,
             disabled: aiBlocked,
             chip: aiNow ? (
-              <select aria-label="選擇 AI 模型" className="input min-h-9 w-auto max-w-full py-1 text-xs" value={aiModel}
+              <select aria-label="選擇 AI 模型" className="input min-h-11 py-1 text-xs" value={aiModel}
                 onClick={(e) => e.stopPropagation()} onChange={(e) => setAiChoice(e.target.value)}>
                 <option value="">自動（目前 {aiNow.label}，剩 {aiNow.remaining} 次）</option>
                 {aiModels.map((m) => (
@@ -340,16 +350,29 @@ export default function Check() {
           googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle, disabled: googleQ.blocked, chip: googleQ.chip },
           vtAvailable && { key: 'vt', label: 'VirusTotal 病毒掃描', sends: ['網域'], to: 'VirusTotal（只查已有的掃描紀錄）', checked: queryVt, onChange: setQueryVt, disabled: vtQ.blocked, chip: vtQ.chip },
         ].filter(Boolean) as ServiceOption[])} />
-        <label className="flex min-h-11 items-start gap-3">
+          </div>
+        </details>
+        <details className="setting-disclosure" id="research-consent">
+          <summary>參與匿名研究（選填）</summary>
+          <div className="disclosure-content space-y-3">
+        <label className="consent-row">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={consentB}
             onChange={(e) => { setConsentB(e.target.checked); if (!e.target.checked) setConsentC(false) }} />
-          <span className="text-sm"><strong>B.（自願）</strong>同意將這次的匿名分析結果（風險特徵、等級，不含原文）用於校內研究。</span>
+          <span className="min-w-0 text-sm">
+            <span className="block font-medium">協助校內研究（選填）</span>
+            <span className="mt-1 block text-xs text-slate-500">同意將這次的匿名分析結果（風險特徵、等級，不含原文）用於校內研究。</span>
+          </span>
         </label>
-        <label className={`flex min-h-11 items-start gap-3 ${consentB ? '' : 'opacity-50'}`}>
+        <label className="consent-row">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={!consentB} checked={consentC} onChange={(e) => setConsentC(e.target.checked)} />
-          <span className="text-sm"><strong>C.（自願）</strong>同意將經審查的衍生統計資料用於教育產品及商業可行性研究。</span>
+          <span className="min-w-0 text-sm">
+            <span className="block font-medium">教育產品與商業研究（選填）</span>
+            <span className="mt-1 block text-xs text-slate-500">同意將經審查的衍生統計資料用於教育產品及商業可行性研究。</span>
+          </span>
         </label>
-        <p className="text-xs text-slate-500">不勾選 B、C 完全不影響查核服務。</p>
+        <p className="text-xs text-slate-500">不參與研究也能使用查核服務。</p>
+          </div>
+        </details>
       </fieldset>
 
       {error && <Alert kind="error">{error}</Alert>}
