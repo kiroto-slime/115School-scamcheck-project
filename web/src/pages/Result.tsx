@@ -79,6 +79,7 @@ export default function Result() {
   const [data, setData] = useState<AnalysisResult | null>((loc.state as AnalysisResult) ?? null)
   const [error, setError] = useState<string | null>(null)
   const [fb, setFb] = useState<'idle' | 'sent' | 'error'>('idle')
+  const [fbError, setFbError] = useState('')
 
   useEffect(() => {
     if (data?.analysis_id === id) return
@@ -93,7 +94,8 @@ export default function Result() {
       const rid = researchId.get()
       await postJson('/api/feedback', { analysis_id: data.analysis_id, helpful, ...(rid && data.consent_research ? { research_id: rid } : {}) })
       setFb('sent')
-    } catch {
+    } catch (e) {
+      setFbError(e instanceof ApiError ? e.message : '')
       setFb('error')
     }
   }
@@ -216,7 +218,7 @@ export default function Result() {
             <button className="btn-secondary flex-1 sm:flex-none" onClick={() => sendFeedback(false)}>沒幫助</button>
           </div>
         )}
-        {fb === 'error' && <Alert kind="error">回饋送出失敗，請稍後再試。</Alert>}
+        {fb === 'error' && <Alert kind="error">回饋送出失敗{fbError ? `：${fbError}` : '，請檢查網路後再試一次。'}</Alert>}
       </Section>
 
       <Link to="/check" className="btn-primary no-underline hover:no-underline">查核另一則訊息</Link>
