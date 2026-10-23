@@ -1,0 +1,33 @@
+{
+  // Cloudflare Worker 設定。網址會是 https://scamcheck.<你的帳號子網域>.workers.dev
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "scamcheck",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  // 前端 React 網頁：/api/* 交給 Worker，其他路徑交給靜態檔（找不到時回 index.html）
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "scamcheck-db",
+      // 第一次部署前用 `npx wrangler d1 create scamcheck-db` 取得 id 後填入
+      "database_id": "9320845c-074e-430c-81e5-c1bb518858dc",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // 每天 UTC 19:17（台灣早上 3:17）清除過期資料
+  "triggers": { "crons": ["17 19 * * *"] },
+  // 每個 IP 每分鐘的請求上限（period 只能是 10 或 60 秒）
+  "ratelimits": [
+    { "name": "ANALYZE_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "LOGIN_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
+    { "name": "DEFAULT_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }
+  ],
+  "vars": {
+    "APP_VERSION": "0.2.0"
+  },
+  "observability": { "enabled": true }
+}

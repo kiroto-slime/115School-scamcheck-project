@@ -1,0 +1,3 @@
+# 選用：圖片 OCR 與影片關鍵影格擷取（不需另外安裝系統工具）
+rapidocr-onnxruntime>=1.3.24
+imageio-ffmpeg>=0.5.1

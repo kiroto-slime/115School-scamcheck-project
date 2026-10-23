@@ -1,0 +1,31 @@
+# 機密與本機資料（不可提交）
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+**/data/
+*.db
+*.sqlite*
+uploads/
+
+# Cloudflare 本機狀態與自動產生的型別檔
+.wrangler/
+worker-configuration.d.ts
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / 前端
+node_modules/
+dist/
+test-results/
+playwright-report/
+*.log
+
+# 可攜版建置產物
+legacy/build_portable/
+legacy/release/
