@@ -37,7 +37,7 @@ export async function factCheckLookup(env: Env, redactedText: string, dailyLimit
   const query = factCheckQuery(redactedText)
   if (query.length < 4) return res('not_found', '沒有足夠的文字可以搜尋查核報告。')
   if (!(await takeDailyQuota(env.DB, 'factcheck', dailyLimit))) return res('rate_limited', '今日 Google 查詢次數已達上限。')
-  const url = `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=${encodeURIComponent(query)}&languageCode=zh&pageSize=3&key=${encodeURIComponent(env.GOOGLE_CLOUD_API_KEY)}`
+  const url = `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=${encodeURIComponent(query)}&pageSize=3&key=${encodeURIComponent(env.GOOGLE_CLOUD_API_KEY)}`
   const doFetch = opts.fetcher ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

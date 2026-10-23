@@ -275,15 +275,19 @@ export async function virusTotalLookup(env: Env, urls: FoundUrl[], dailyLimit: n
       const s = data.data?.attributes?.last_analysis_stats ?? {}
       const bad = (s.malicious ?? 0) + (s.suspicious ?? 0)
       const total = bad + (s.harmless ?? 0) + (s.undetected ?? 0)
-      if (bad > 0) threats.push({ host_masked: maskHost(host), detail: `${total} 個資安引擎中有 ${s.malicious ?? 0} 個判定惡意、${s.suspicious ?? 0} 個判定可疑`, malicious: s.malicious ?? 0 })
+      // 只有 1 個引擎標示，大多是誤判（連 google.com 都會有），2 個以上才列出
+      if (bad >= VT_MIN_ENGINES) threats.push({ host_masked: maskHost(host), detail: `${total} 個資安引擎中有 ${s.malicious ?? 0} 個判定惡意、${s.suspicious ?? 0} 個判定可疑`, malicious: s.malicious ?? 0 })
     } catch {
       failed = true
     }
   }
-  if (threats.length) return ext('found', 'VirusTotal 有資安引擎將網域標示為惡意或可疑（少數引擎標示可能是誤判）。', threats)
+  if (threats.length) return ext('found', 'VirusTotal 有 2 個以上的資安引擎將網域標示為惡意或可疑（仍可能有誤判）。', threats)
   if (failed && !checked) return ext('error', 'VirusTotal 查詢失敗或逾時，其他分析照常進行。')
-  return ext('clean', 'VirusTotal 的資安引擎沒有將網域標示為惡意（新網站可能還沒有紀錄）。')
+  return ext('clean', 'VirusTotal 沒有多個資安引擎將網域標示為惡意（新網站可能還沒有紀錄）。')
 }
 
-/** VirusTotal 多少個引擎判定惡意才算數（1 個常是誤判） */
+/** VirusTotal 至少幾個引擎標示才列出（1 個常是誤判） */
+const VT_MIN_ENGINES = 2
+
+/** VirusTotal 判定惡意的最多引擎數（規則加分用） */
 export const vtMaliciousCount = (r: ExternalUrlResult) => r.threats.reduce((n, t) => Math.max(n, t.malicious ?? 0), 0)

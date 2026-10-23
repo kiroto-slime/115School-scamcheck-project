@@ -100,6 +100,11 @@ describe('Google 與 VirusTotal', () => {
     expect(calls.every((c) => c.url.startsWith('https://www.virustotal.com/api/v3/domains/'))).toBe(true)
     expect((calls[0].init!.headers as Record<string, string>)['x-apikey']).toBe('vt-key')
   })
+  it('VirusTotal：只有 1 個引擎標示（常見誤判）不列出', async () => {
+    mockFetch(() => Response.json({ data: { attributes: { last_analysis_stats: { malicious: 1, suspicious: 0, harmless: 70, undetected: 20 } } } }))
+    const r = await virusTotalLookup(e(), extractUrls('https://www.google.com'), 100)
+    expect(r).toMatchObject({ status: 'clean', threats: [] })
+  })
   it('VirusTotal：每分鐘超過 4 次就停', async () => {
     mockFetch(() => new Response('{}', { status: 404 }))
     for (let i = 0; i < 2; i++) await virusTotalLookup(e(), extractUrls('a1.top a2.top'), 100)
