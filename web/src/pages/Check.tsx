@@ -354,7 +354,8 @@ export default function Check() {
         ].filter(Boolean) as ServiceOption[])} />
           </div>
         </details>
-        <details className="setting-disclosure" id="research-consent">
+        {/* 預設展開，讓「協助校內研究」預設勾選的狀態一眼看得到 */}
+        <details className="setting-disclosure" id="research-consent" open>
           <summary><span className="disclosure-label">參與匿名研究（選填）</span></summary>
           <div className="disclosure-content space-y-3">
         <label className="consent-row">

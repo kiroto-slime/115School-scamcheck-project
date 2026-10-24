@@ -58,7 +58,6 @@ describe('Check page', () => {
     const calls: string[] = []
     mockFetch((url) => { calls.push(url); return result })
     render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
-    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
     await userEvent.click(screen.getByLabelText(/協助校內研究（選填）/))
     await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
     await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
@@ -84,7 +83,6 @@ describe('Check page', () => {
     refreshHealth()
     render(<MemoryRouter><Check /></MemoryRouter>)
     await userEvent.click(screen.getByText('查核設定'))
-    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
     const all = await screen.findByRole('checkbox', { name: '全選' })
     const vt = screen.getByRole('checkbox', { name: /VirusTotal/ })
     expect(vt).not.toBeChecked()
@@ -102,7 +100,7 @@ describe('Check page', () => {
   it('consent C is disabled until B is checked', async () => {
     mockFetch(() => ({}))
     render(<MemoryRouter><Check /></MemoryRouter>)
-    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
+    expect(screen.getByText('參與匿名研究（選填）').closest('details')).toHaveAttribute('open') // 預設展開
     const b = screen.getByLabelText(/協助校內研究（選填）/)
     const c = screen.getByLabelText(/教育產品與商業研究（選填）/)
     expect(b).toBeChecked() // 預設勾選
@@ -259,7 +257,6 @@ describe('查核設定收合與模型選擇', () => {
     expect(screen.getByLabelText('選擇 AI 模型')).toHaveValue('b-2')
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).not.toBeChecked()
     // 「協助校內研究」預設勾選；這個測試只看服務旗標，所以先取消
-    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
     await userEvent.click(screen.getByLabelText(/協助校內研究（選填）/))
     await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
     await userEvent.click(screen.getByRole('button', { name: '開始查核' }))

@@ -290,7 +290,8 @@ test('375px 與桌面：深淺色及大字下各分頁均可閱讀', async ({ pa
         await expect(page.locator('h1')).toBeVisible()
         if (path === '/check') {
           await page.locator('#service-settings > summary').click()
-          await page.locator('#research-consent > summary').click()
+          // 研究同意區預設展開，沒展開才點開
+          if (!(await page.locator('#research-consent').evaluate((el) => (el as HTMLDetailsElement).open))) await page.locator('#research-consent > summary').click()
         }
         await noHorizontalOverflow(page)
       }
