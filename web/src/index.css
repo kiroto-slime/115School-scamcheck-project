@@ -277,3 +277,12 @@ summary:focus-visible { border-radius: 8px; }
   .ai-service-row .service-chip { grid-area: auto; width: calc(100% - 30px); margin-left: 30px; max-width: none; }
   .disclosure-hint { display: none; }
 }
+
+/* 配色主題選單（右上角）：方塊左上淺、右下深 */
+.accent-menu { position: relative; }
+.accent-popover { position: absolute; right: 0; top: calc(100% + 8px); z-index: 45; display: grid; gap: 4px; min-width: 230px; padding: 8px; border: 1px solid var(--control-border); border-radius: 16px; background: var(--menu-glass); backdrop-filter: blur(22px) saturate(1.2); box-shadow: var(--panel-shadow); }
+.accent-option { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border: 1px solid transparent; border-radius: 12px; color: var(--color-slate-800); background: transparent; cursor: pointer; text-align: left; font-size: 0.95rem; }
+.accent-option:hover { background: var(--surface); }
+.accent-option[aria-checked="true"] { border-color: var(--color-teal-700); font-weight: 600; }
+.accent-swatch { width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px; border: 1px solid rgba(0,0,0,.18); }
+

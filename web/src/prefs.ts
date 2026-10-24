@@ -43,10 +43,36 @@ function readTextSize(): TextSize {
   return read('largeText') === '1' ? 'medium' : 'small'
 }
 
+/** 配色主題：青綠是預設（index.css 原樣），其他由 scripts/gen-accents.mjs 產生；深淺色仍由深淺按鈕切換 */
+export type Accent = 'teal' | 'blue' | 'violet' | 'orange' | 'pink'
+/** 名稱與選單方塊的兩個顏色（左上淺、右下深） */
+export const ACCENTS: { id: Accent; label: string; swatch: [string, string] }[] = [
+  { id: 'teal', label: '青綠（預設）', swatch: ['#99f6e4', '#0f766e'] },
+  { id: 'blue', label: '海洋藍', swatch: ['#bfdbfe', '#1d4ed8'] },
+  { id: 'violet', label: '紫羅蘭', swatch: ['#ddd6fe', '#6d28d9'] },
+  { id: 'orange', label: '暖陽橘', swatch: ['#fed7aa', '#c2410c'] },
+  { id: 'pink', label: '櫻花粉', swatch: ['#fbcfe8', '#be185d'] },
+]
+const readAccent = (): Accent => {
+  const v = read('accent')
+  return ACCENTS.some((a) => a.id === v) ? (v as Accent) : 'teal'
+}
+export function applyAccent(a: Accent) {
+  if (a === 'teal') delete document.documentElement.dataset.accent
+  else document.documentElement.dataset.accent = a
+}
+export function useAccent() {
+  const [accent, setAccent] = useState<Accent>(readAccent)
+  useEffect(() => applyAccent(accent), [accent])
+  const choose = (a: Accent) => { write('accent', a); setAccent(a) }
+  return { accent, choose }
+}
+
 /** 在畫面出現前先套用，避免閃一下 */
 export function initPrefs() {
   applyTheme((read('theme') as Theme | null) ?? systemTheme())
   applyTextSize(readTextSize())
+  applyAccent(readAccent())
 }
 
 export function useTheme() {

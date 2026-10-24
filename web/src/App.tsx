@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import { ModeBanner } from './components/ui'
 import { FloatingTools } from './components/FloatingTools'
+import { AccentMenu } from './components/AccentMenu'
 import { Navigation } from './components/Navigation'
 import Home from './pages/Home'
 import Check from './pages/Check'
@@ -121,6 +122,7 @@ export default function App() {
             </button>
           </div>
           <div className="flex items-center gap-1">
+            <AccentMenu />
             <ThemeButton />
             <button
               className="header-button mobile-menu-toggle"
