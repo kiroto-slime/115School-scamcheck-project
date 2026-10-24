@@ -59,13 +59,27 @@ describe('浮動工具', () => {
     expect(scroll).toHaveBeenLastCalledWith({ top: 0, behavior: 'instant' })
   })
 
-  it('大字按鈕保留原有偏好設定與整頁字級', async () => {
+  it('文字大小：按鈕顯示目前大小，依序 小 → 中 → 大 → 小，並記住設定', async () => {
     render(<MemoryRouter><App /></MemoryRouter>)
-    await userEvent.click(screen.getByRole('button', { name: '放大文字（大字模式）' }))
-    expect(localStorage.getItem('largeText')).toBe('1')
-    expect(document.documentElement.style.fontSize).toBe('118.75%')
-    await userEvent.click(screen.getByRole('button', { name: '恢復一般文字大小' }))
-    expect(localStorage.getItem('largeText')).toBe('0')
+    const btn = screen.getByRole('button', { name: /文字大小：小/ })
+    expect(btn).toHaveTextContent('小')
     expect(document.documentElement.style.fontSize).toBe('')
+    await userEvent.click(btn)
+    expect(btn).toHaveTextContent('中')
+    expect(document.documentElement.style.fontSize).toBe('118.75%')
+    expect(localStorage.getItem('textSize')).toBe('medium')
+    await userEvent.click(btn)
+    expect(btn).toHaveTextContent('大')
+    expect(document.documentElement.style.fontSize).toBe('137.5%')
+    await userEvent.click(btn)
+    expect(btn).toHaveTextContent('小')
+    expect(document.documentElement.style.fontSize).toBe('')
+  })
+
+  it('舊版開過大字模式的人自動對應到「中」', () => {
+    localStorage.setItem('largeText', '1')
+    render(<MemoryRouter><App /></MemoryRouter>)
+    expect(screen.getByRole('button', { name: /文字大小：中/ })).toHaveTextContent('中')
+    expect(document.documentElement.style.fontSize).toBe('118.75%')
   })
 })

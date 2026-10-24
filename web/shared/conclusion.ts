@@ -26,3 +26,19 @@ export function mainReasons(d: ConclusionData): string[] {
   for (const f of d.features ?? []) out.push(`${f.label}（${f.triggers.slice(0, 2).join('、')}）`)
   return out.slice(0, 5)
 }
+
+const RANK: Record<string, number> = { 低: 1, 中: 2, 高: 3 }
+
+/**
+ * 比較規則與 AI 的風險等級：
+ * - ai_lower：AI 判得比規則輕（可能被訊息內容誤導），結論卡不放 AI 摘要
+ * - ai_higher：AI 判得比規則重，以較高風險為準
+ * 任一方「資訊不足／無法判斷」時，只有 AI 判得較重才算不一致。
+ */
+export function aiAgreement(ruleLevel: string, aiLevel: string | null | undefined): 'agree' | 'ai_lower' | 'ai_higher' | 'unknown' {
+  const ai = RANK[aiLevel ?? '']
+  if (!ai) return 'unknown'
+  const rule = RANK[ruleLevel] ?? 0
+  if (ai === rule) return 'agree'
+  return ai < rule ? 'ai_lower' : 'ai_higher'
+}

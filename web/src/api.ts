@@ -97,6 +97,7 @@ export interface AnalysisResult {
     provider: string; status: string; is_demo: boolean; summary: string | null; external: boolean; model?: string | null
     risk_level?: string | null; risk_points?: string[]; advice?: string[]; media_description?: string | null; sent_media?: string[]
     fallback_note?: string | null
+    manipulation?: boolean
   }
   media: { ocr_status?: string; frames_extracted?: number; duration_seconds?: number | null; notes?: string[]; used_manual_text?: boolean }
   checked_at: string

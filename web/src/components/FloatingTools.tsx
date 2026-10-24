@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLargeText } from '../prefs'
+import { TEXT_SIZE_LABEL, TEXT_SIZES, useTextSize } from '../prefs'
 
 /** 工具共用定位基準，回頂途中保留兩顆按鈕的位置。 */
 export function FloatingTools({ pathname }: { pathname: string }) {
-  const { large, toggle } = useLargeText()
+  const { size, next } = useTextSize()
+  const nextLabel = TEXT_SIZE_LABEL[TEXT_SIZES[(TEXT_SIZES.indexOf(size) + 1) % TEXT_SIZES.length]]
   const [showTop, setShowTop] = useState(false)
   const returning = useRef(false)
 
@@ -44,11 +45,10 @@ export function FloatingTools({ pathname }: { pathname: string }) {
 
   return (
     <div className={`floating-tools ${showTop ? 'has-top' : ''}`} role="group" aria-label="閱讀工具">
-      <button className="reading-toggle" onClick={toggle} aria-pressed={large}
-        aria-label={large ? '恢復一般文字大小' : '放大文字（大字模式）'} title={large ? '縮小文字' : '放大文字'}>
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-          <path d={large ? 'M5 12h14' : 'M12 5v14M5 12h14'} />
-        </svg>
+      {/* 按鈕直接顯示目前的文字大小；按一下依序切換 小 → 中 → 大 → 小 */}
+      <button className="reading-toggle" onClick={next}
+        aria-label={`文字大小：${TEXT_SIZE_LABEL[size]}，按一下改成${nextLabel}`} title={`文字大小：${TEXT_SIZE_LABEL[size]}（按一下改成${nextLabel}）`}>
+        <span className="text-size-label" aria-hidden="true">{TEXT_SIZE_LABEL[size]}</span>
       </button>
       <button className="top-toggle" hidden={!showTop} onClick={toTop} aria-label="回到頁面頂端" title="回到頂端">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

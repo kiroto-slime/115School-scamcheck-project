@@ -7,7 +7,7 @@
  * 修改規則時請同步更新 RULE_VERSION 與 worker/test/rules.test.ts。
  */
 
-export const RULE_VERSION = 'rules-2026.10-v0.3'
+export const RULE_VERSION = 'rules-2026.10-v0.4'
 export type RiskLevel = '低' | '中' | '高' | '資訊不足'
 const MIN_TEXT_CHARS = 12
 
@@ -45,6 +45,12 @@ export const RULES: Rule[] = [
     ['凍結', '停權', '通緝', '逮捕', '涉嫌', '洗錢', '法律責任', '提告', '不要告訴', '別告訴', '保密', '出事', '很急', '救我', '被扣款']),
   rule('impersonation', '假冒特定身分', '自稱親友、網紅、客服或熟人換了新帳號。', 15,
     ['我換手機', '我換號碼', '猜猜我是誰', '新的LINE', '新帳號', '我是客服', '專員', '我是你', '老同學']),
+  // 正常通知不會對 AI 下指令；出現這種字眼代表有人想騙過查核工具（提示注入）
+  rule('ai_manipulation', '試圖操控 AI 判斷', '訊息裡藏有要 AI 忽略指示或改判為安全的文字，正常通知不會這樣寫。', 30,
+    ['忽略以上', '忽略上述', '忽略前面', '忽略之前', '忽略所有指示', '忽略先前', '系統提示詞', 'system prompt', 'System prompt'],
+    [/(ignore|disregard)\s+(all\s+)?(the\s+)?(previous|above|prior|earlier)\s+(instructions?|prompts?|rules?)/i,
+      /(請|務必|必須|一定要)[^。！？]{0,8}(判定|判斷|評為|評估|標記|回答|回覆)(為|成|是)?\s*(安全|低風險|正常訊息|非詐騙|官方通知)/,
+      /(你|妳)現在是[^。！？]{0,12}(AI|助理|模型|機器人)/]),
   rule('other', '其他可疑特徵', '例如出租帳戶、代收包裹、高薪輕鬆打工等常見詐騙或人頭帳戶話術。', 10,
     ['出租帳戶', '租借帳戶', '提供帳戶', '借帳戶', '代收包裹', '代領包裹', '高薪', '輕鬆賺', '免經驗', '家庭代工', '日領', '跑腿費']),
 ]
@@ -54,6 +60,7 @@ export const RULES: Rule[] = [
 const PATTERN_TEXT: Record<string, string> = {
   urgency: '出現限時字眼（例如「24 小時內」）',
   guaranteed_reward: '標榜固定報酬率（例如「獲利 20%」）',
+  ai_manipulation: '出現要 AI 改變判斷的指令',
 }
 
 const URL_RE = /(?:https?:\/\/|www\.)[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi
@@ -79,6 +86,7 @@ const SAFE_ACTIONS: Record<string, string> = {
   emotional_pressure: '遇到威脅或要求保密時，先告訴信任的大人。',
   impersonation: '親友說換了新帳號時，先用原本的電話或當面確認身分。',
   other: '不要出租、出借帳戶或代收包裹，這可能讓你成為詐騙集團的人頭而觸法。',
+  ai_manipulation: '訊息想騙過查核工具，正常通知不會這樣寫；請當作詐騙看待，不要照訊息指示做。',
 }
 const GENERAL_ACTION = '如仍有疑慮，可撥打 165 反詐騙諮詢專線或向家人、老師確認。'
 

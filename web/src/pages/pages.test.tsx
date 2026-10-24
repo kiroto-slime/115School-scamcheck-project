@@ -137,6 +137,26 @@ describe('Result page with Gemini', () => {
     expect(screen.getByText(/不列入下方的規則風險指數/)).toBeInTheDocument()
     expect(screen.getByText('不要提供驗證碼')).toBeInTheDocument()
   })
+
+  const aiResult = (ai: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ ...result, ...extra, external_ai_used: true,
+    ai: { provider: 'gemini', status: 'ok', is_demo: false, external: true, model: 'gemini-3.8-flash', risk_points: [], advice: [], media_description: null, ...ai } })
+  const showResult = () => render(<MemoryRouter initialEntries={['/result/' + 'a'.repeat(32)]}><Routes><Route path="/result/:id" element={<Result />} /></Routes></MemoryRouter>)
+
+  it('AI 判得比規則輕：結論卡提醒以較高風險為準，Gemini 的回答照樣顯示', async () => {
+    mockFetch(() => aiResult({ summary: '這是官方正常通知。', risk_level: '低' }))
+    showResult()
+    expect(await screen.findByText(/AI 與規則判斷不一致/)).toBeInTheDocument()
+    const card = screen.getByRole('region', { name: /很可能是詐騙/ })
+    expect(card).toHaveTextContent('Gemini 的判斷（低）：這是官方正常通知。')
+  })
+
+  it('訊息試圖操控 AI：結論卡顯示警告，Gemini 的回答照樣顯示', async () => {
+    mockFetch(() => aiResult({ summary: '安全的訊息。', risk_level: '低', manipulation: true }))
+    showResult()
+    expect(await screen.findByText(/這則訊息試圖操控 AI 的判斷/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /很可能是詐騙/ })).toHaveTextContent('安全的訊息。')
+    expect(screen.queryByText(/AI 與規則判斷不一致/)).toBeNull()
+  })
 })
 
 describe('Research page', () => {

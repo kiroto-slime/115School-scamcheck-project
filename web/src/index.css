@@ -197,6 +197,7 @@ summary:focus-visible { border-radius: 8px; }
 .floating-tools { position: fixed; right: 26px; bottom: calc(23px + env(safe-area-inset-bottom)); width: 48px; height: 48px; z-index: 40; isolation: isolate; }
 .floating-tools button { position: absolute; inset: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 16px; border: 1px solid var(--control-border); background: var(--surface); color: var(--color-slate-800); backdrop-filter: blur(16px); box-shadow: var(--panel-shadow); cursor: pointer; }
 .floating-tools svg { width: 26px; height: 26px; }
+.floating-tools .text-size-label { font-size: 20px; font-weight: 700; line-height: 1; }
 .floating-tools .reading-toggle { z-index: 2; transition: transform .22s ease; }
 .floating-tools.has-top .reading-toggle { transform: translateY(-58px); }
 .floating-tools .top-toggle { z-index: 1; animation: reveal-top .4s both; }

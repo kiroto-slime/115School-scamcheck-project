@@ -5,7 +5,8 @@
  * - Cloudflare 建置主機在國外，常連不到政府網站：下載成功時會更新 snapshot/tw165.json.gz（要提交到 Git），
  *   下載失敗時改用這份備份。連備份都沒有才寫入 available:false。
  * 更新備份：在臺灣的電腦執行 npm run data:165，再提交 snapshot/tw165.json.gz。
- * 用法：node scripts/build-tw165.mjs [--force]（本機 24 小時內已下載過就略過）
+ * 用法：node scripts/build-tw165.mjs [--force]（24 小時內已下載過就略過）；本機預覽 npm run dev 用 --offline（不連網）。
+ * 要更新備份檔：在臺灣的電腦手動執行 npm run data:165 再提交，或在管理頁上傳 CSV。
  */
 import { createHash } from 'node:crypto'
 import { gunzipSync, gzipSync } from 'node:zlib'
@@ -60,7 +61,7 @@ const shardOf = (host) => createHash('sha256').update(host).digest('hex').slice(
 const cells = (line) => line.split(',').map((x) => x.replace(/^"|"$/g, '').trim())
 
 async function download(src) {
-  if (process.env.TW165_OFFLINE) throw new Error('離線測試')
+  if (process.env.TW165_OFFLINE || OFFLINE) throw new Error('本機預覽不連網下載')
   const r = await fetch(src.url, { signal: AbortSignal.timeout(90_000), headers: { 'User-Agent': 'scamcheck-build' } })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const text = (await r.text()).replace(/^﻿/, '')
@@ -69,7 +70,14 @@ async function download(src) {
   return lines.map((l) => src.row(cells(l)))
 }
 
+/** --offline：本機預覽用，不連網下載、不改備份檔，只用現有名單或 snapshot 備份 */
+const OFFLINE = process.argv.includes('--offline')
+
 async function main() {
+  if (OFFLINE && existsSync(join(OUT, 'meta.json')) && JSON.parse(readFileSync(join(OUT, 'meta.json'), 'utf8')).available) {
+    console.log('[165] 本機預覽：使用現有名單，不下載')
+    return
+  }
   const force = process.argv.includes('--force') || process.env.CI
   const metaPath = join(OUT, 'meta.json')
   if (!force && existsSync(metaPath)) {

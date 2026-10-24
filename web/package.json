@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/migrate-local.mjs && node scripts/build-tw165.mjs && vite",
+    "dev": "node scripts/migrate-local.mjs && node scripts/build-tw165.mjs --offline && vite",
     "build": "wrangler types && node scripts/build-tw165.mjs && tsc -p tsconfig.json && tsc -p worker/tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run && vitest run --config vitest.worker.config.ts",

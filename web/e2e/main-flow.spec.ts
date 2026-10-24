@@ -255,7 +255,7 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
 
 test('閱讀工具不重疊、頂端固定且平順回到真正頂端', async ({ page }) => {
   await page.goto('/privacy')
-  const font = page.getByRole('button', { name: '放大文字（大字模式）' })
+  const font = page.getByRole('button', { name: /文字大小/ })
   const top = page.getByRole('button', { name: '回到頁面頂端' })
   await expect(top).toBeHidden()
   const original = await font.boundingBox()
@@ -279,7 +279,9 @@ test('375px 與桌面：深淺色及大字下各分頁均可閱讀', async ({ pa
   for (const width of [375, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/check')
-    await page.getByRole('button', { name: '放大文字（大字模式）' }).click()
+    // 用最大的「大」檢查版面（小 → 中 → 大）
+    await page.getByRole('button', { name: /文字大小：小/ }).click()
+    await page.getByRole('button', { name: /文字大小：中/ }).click()
     for (const dark of [false, true]) {
       const currentlyDark = await page.locator('html').evaluate((el) => el.classList.contains('dark'))
       if (currentlyDark !== dark) await page.getByRole('button', { name: /切換成.*色模式/ }).click()
@@ -293,7 +295,7 @@ test('375px 與桌面：深淺色及大字下各分頁均可閱讀', async ({ pa
         await noHorizontalOverflow(page)
       }
     }
-    await page.getByRole('button', { name: '恢復一般文字大小' }).click()
+    await page.getByRole('button', { name: /文字大小：大/ }).click() // 回到「小」
   }
 })
 
@@ -312,7 +314,10 @@ test('桌面與大字模式能完整顯示目前的 AI 模型選項', async ({ p
   const model = page.getByLabel('選擇 AI 模型', { exact: true })
   await expect(model).toContainText('自動（目前 Gemini 3.8 Flash，剩 8 次）')
   for (const large of [false, true]) {
-    if (large) await page.getByRole('button', { name: '放大文字（大字模式）' }).click()
+    if (large) {
+      await page.getByRole('button', { name: /文字大小：小/ }).click()
+      await page.getByRole('button', { name: /文字大小：中/ }).click()
+    }
     for (const width of [1280, 1024, 768]) {
       await page.setViewportSize({ width, height: 900 })
       const fits = await model.evaluate((element) => {
