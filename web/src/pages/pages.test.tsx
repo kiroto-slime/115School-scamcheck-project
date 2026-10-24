@@ -51,7 +51,19 @@ describe('Check page', () => {
     await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
     await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
     expect(calls).toContain('/api/analyze/text')
-    expect(calls).not.toContain('/api/consent') // 未勾選 B 不建立研究紀錄
+    expect(calls).toContain('/api/consent') // 「協助校內研究」預設勾選
+  })
+
+  it('取消勾選「協助校內研究」就不建立研究紀錄', async () => {
+    const calls: string[] = []
+    mockFetch((url) => { calls.push(url); return result })
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
+    await userEvent.click(screen.getByLabelText(/協助校內研究（選填）/))
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
+    expect(calls).not.toContain('/api/consent')
   })
 
   it('貼上 IG／FB 連結時提醒改用截圖或錄影，並可一鍵切換', async () => {
@@ -81,7 +93,7 @@ describe('Check page', () => {
     await userEvent.click(all)
     expect(vt).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).toBeChecked()
-    expect(screen.getByLabelText(/協助校內研究（選填）/)).not.toBeChecked()
+    expect(screen.getByLabelText(/協助校內研究（選填）/)).toBeChecked() // 預設勾選，全選不會動到它
     await userEvent.click(all)
     expect(vt).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).not.toBeChecked()
@@ -93,8 +105,10 @@ describe('Check page', () => {
     await userEvent.click(screen.getByText('參與匿名研究（選填）'))
     const b = screen.getByLabelText(/協助校內研究（選填）/)
     const c = screen.getByLabelText(/教育產品與商業研究（選填）/)
+    expect(b).toBeChecked() // 預設勾選
+    expect(c).toBeEnabled()
+    await userEvent.click(b)
     expect(c).toBeDisabled()
-    expect(b).not.toBeChecked()
     await userEvent.click(b)
     expect(c).toBeEnabled()
     await userEvent.click(c)
@@ -244,6 +258,9 @@ describe('查核設定收合與模型選擇', () => {
     expect(ai).toBeChecked()
     expect(screen.getByLabelText('選擇 AI 模型')).toHaveValue('b-2')
     expect(screen.getByRole('checkbox', { name: /Cofacts/ })).not.toBeChecked()
+    // 「協助校內研究」預設勾選；這個測試只看服務旗標，所以先取消
+    await userEvent.click(screen.getByText('參與匿名研究（選填）'))
+    await userEvent.click(screen.getByLabelText(/協助校內研究（選填）/))
     await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
     await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
     await screen.findByText('結果頁')

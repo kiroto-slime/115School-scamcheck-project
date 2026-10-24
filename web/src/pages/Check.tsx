@@ -125,7 +125,8 @@ export default function Check() {
   const vtAvailable = health?.modes.virustotal === 'live'
   const [queryGoogle, setQueryGoogle] = useState(true)
   const [queryVt, setQueryVt] = useState(false)
-  const [consentB, setConsentB] = useState(false)
+  // 協助校內研究：預設勾選，可取消（使用者決定）
+  const [consentB, setConsentB] = useState(true)
   const [consentC, setConsentC] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   // 分析進行中重新整理或關分頁：瀏覽器先問一次，避免分析中斷、結果不見
@@ -179,7 +180,8 @@ export default function Check() {
   }
 
   async function ensureConsent(): Promise<string | undefined> {
-    if (!consentB) return undefined
+    // 管理頁關閉研究蒐集時不建立同意紀錄，避免預設勾選讓查核失敗
+    if (!consentB || health?.modes.research_collection_enabled === false) return undefined
     let rid = researchId.get()
     if (!rid) {
       const r = await postJson<{ research_id: string }>('/api/consent', { purpose: 'research', status: 'granted' })
