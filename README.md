@@ -57,6 +57,10 @@ npm run test:e2e   # iPhone / Pixel / iPad / 桌面 瀏覽器測試
 | [警政署 165 反詐騙諮詢專線：假投資（博弈）網站](https://data.gov.tw/dataset/160055) | 涉詐網址比對 | 政府資料開放授權條款－第 1 版 |
 | Google Gemini、Google 安全瀏覽、Google Fact Check Tools、VirusTotal | 選用的外部分析服務（需自行申請金鑰） | 依各服務條款 |
 
+## 致謝
+
+查核頁「調皮的按鈕」效果的點子來自 Codfish 的 [ChillComponent](https://chillcomponent.codlin.me/components/btn-naughty/)（MIT 授權），本專案以 React 自行重寫。
+
 ## 授權
 
 Copyright (C) 2026 kiroto-slime

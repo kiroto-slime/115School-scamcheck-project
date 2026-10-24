@@ -45,7 +45,15 @@ describe('Check page', () => {
     const calls: string[] = []
     mockFetch((url) => { calls.push(url); return result })
     render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
-    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    // 還沒輸入：用滑鼠點按鈕會跑走並提示，不送出
+    const submitBtn = screen.getByRole('button', { name: '開始查核' })
+    await userEvent.click(submitBtn)
+    expect(screen.getByRole('status')).toHaveTextContent('先貼上要查核的訊息喔')
+    expect(submitBtn).toHaveAttribute('data-moved', 'true')
+    expect(screen.queryByRole('alert')).toBeNull()
+    // 用鍵盤送出不跑，照常顯示錯誤
+    submitBtn.focus()
+    await userEvent.keyboard('{Enter}')
     expect(screen.getByRole('alert')).toHaveTextContent('請輸入要查核的訊息內容')
     await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
     await userEvent.click(screen.getByRole('button', { name: '開始查核' }))

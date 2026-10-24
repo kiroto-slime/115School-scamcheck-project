@@ -286,3 +286,4 @@ summary:focus-visible { border-radius: 8px; }
 .accent-option[aria-checked="true"] { border-color: var(--color-teal-700); font-weight: 600; }
 .accent-swatch { width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px; border: 1px solid rgba(0,0,0,.18); }
 
+.naughty-area { position: relative; }

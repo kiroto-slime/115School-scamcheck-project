@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
+import { NaughtyButton } from '../components/NaughtyButton'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
 import { Alert, refreshHealth, Spinner, useHealth } from '../components/ui'
 
@@ -379,7 +380,9 @@ export default function Check() {
       </fieldset>
 
       {error && <Alert kind="error">{error}</Alert>}
-      {busy ? <Spinner label={busy} /> : <button type="submit" className="btn-primary w-full sm:w-auto">開始查核</button>}
+      {busy ? <Spinner label={busy} /> : (
+        <NaughtyButton empty={mode === 'text' ? !text.trim() : !file} hint={mode === 'text' ? '先貼上要查核的訊息喔！' : '先選擇要上傳的檔案喔！'}>開始查核</NaughtyButton>
+      )}
     </form>
   )
 }

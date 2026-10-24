@@ -348,3 +348,21 @@ test('圖片上傳：瀏覽器縮圖後送出，沒有 AI 時改用補充文字'
   await expect(page.getByRole('heading', { name: '查核結果', exact: true })).toBeVisible()
   await expect(page.getByText('要求付款或匯款').first()).toBeVisible()
 })
+
+test('還沒輸入時「開始查核」會躲開，不跑出畫面；輸入後回到原位', async ({ page }) => {
+  await page.goto('/check')
+  const btn = page.getByRole('button', { name: '開始查核' })
+  await btn.scrollIntoViewIfNeeded()
+  const before = (await btn.boundingBox())!
+  await btn.click()
+  await expect(page.getByText('先貼上要查核的訊息喔！')).toBeVisible()
+  await expect(btn).toHaveAttribute('data-moved', 'true')
+  await expect.poll(async () => { const b = (await btn.boundingBox())!; return Math.abs(b.x - before.x) + Math.abs(b.y - before.y) }).toBeGreaterThan(5)
+  const after = (await btn.boundingBox())!
+  const width = page.viewportSize()!.width
+  expect(after.x).toBeGreaterThanOrEqual(0)
+  expect(after.x + after.width).toBeLessThanOrEqual(width)
+  await noHorizontalOverflow(page)
+  await page.getByLabel(/貼上可疑訊息/).fill('請立即匯款')
+  await expect(btn).not.toHaveAttribute('data-moved', 'true')
+})
