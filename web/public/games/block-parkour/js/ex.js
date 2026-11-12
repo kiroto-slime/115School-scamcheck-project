@@ -10,6 +10,11 @@ try {
 document.documentElement.dataset.largeText = 'false';
 
 const CLEAR_SCORE = 1000;
+const MAX_LIFE = 5;          // 生命 5 格（可以是小數，會一點一點減少）
+const ENERGY_PX = 3200;      // 能量：往右跑約 3200 像素（約 80 分）用完
+const LIFE_DRAIN_PX = 800;   // 能量耗盡後：往右跑約 800 像素（約 20 分）扣 1 格生命
+const WRONG_LOSS = 0.1;      // 答錯扣 0.1 格；連續答錯每次再乘 1.1 倍
+const WRONG_RATE = 1.1;
 
 // ----- 簡易音效（Web Audio，不需要音檔）-----
 const Sfx = {
@@ -90,8 +95,9 @@ const Intro = {
     $('#ex-story').innerHTML = `
       <p>你以為廣播風暴只是有人接錯線？其實是潛伏在封包裡的<strong>「Bug 病毒」</strong>搞的鬼。
         它把整個機房網路改寫成一款 <strong>2D 動作遊戲</strong>，連小封包都被感染成了紅色。</p>
-      <p>唯一的解法：以<strong>玩家</strong>身分進入遊戲，一路往右衝、吃 🍎、踩扁 Bug，
-        每 100 分升級並抽一道後台發布的防詐題，達到 ${CLEAR_SCORE} 分就<strong>通關！</strong>通關後仍可繼續衝高分，直到生命歸零。</p>
+      <p>唯一的解法：以<strong>玩家</strong>身分進入遊戲，一路往右衝、踩扁 Bug。
+        往右跑會消耗<strong>能量</strong>，能量用完生命會慢慢流失；吃 🍎 可補一點能量。
+        每 100 分升級並抽一道後台發布的防詐題：答對補滿能量，答錯扣少量生命。達到 ${CLEAR_SCORE} 分就<strong>通關！</strong>通關後仍可繼續衝高分，直到生命歸零。</p>
       <p class="ex-small">暱稱與排行榜只儲存在這個瀏覽器，不會上傳；請勿輸入真實姓名。</p>`;
     const btn = $('#ex-start');
     btn.textContent = '開始遊戲 ▶';
@@ -190,7 +196,8 @@ const Quiz = {
         button.onclick = () => {
           $('#quiz-options').querySelectorAll('button').forEach(b => b.disabled = true);
           const correct = index === question.correct_index;
-          $('#quiz-feedback').textContent = `${correct ? '答對了！' : '再記住這個重點：'}正確答案：${question.options[question.correct_index]}\n${question.explanation}`;
+          const effect = Run.answerQuiz(correct);
+          $('#quiz-feedback').textContent = `${correct ? '答對了！' : '再記住這個重點：'}${effect}\n正確答案：${question.options[question.correct_index]}\n${question.explanation}`;
           try {
             const saved = JSON.parse(localStorage.getItem('scamcheck-block-parkour-practice') || '[]');
             const rows = Array.isArray(saved) ? saved.slice(-99) : [];
@@ -212,7 +219,10 @@ const Quiz = {
   },
   resume() {
     this.cancel(); clearControls();
-    if (Run.paused === 'quiz') Run.paused = false;
+    if (Run.paused !== 'quiz') return;
+    if (Run.life <= 0) { Run.finish(false, '答錯題目，LIFE 歸零'); return; }
+    Run.rescueFromVoid();
+    Run.paused = false;
   },
 };
 
@@ -231,7 +241,9 @@ const Run = {
     this.maxX = 120;
     this.bonus = 0;
     this.fruits = 0;
-    this.life = 3;
+    this.life = MAX_LIFE;
+    this.energy = 1;
+    this.wrongStreak = 0;
     this.inv = 0;
     this.level = 1;
     this.hasCleared = false;
@@ -287,12 +299,10 @@ const Run = {
         const px = x + 60 + Math.random() * (len - pw - 120);
         const py = this.GROUND - 105 - Math.random() * 60;
         this.plats.push({ x: px, y: py, w: pw, h: 16, ground: false });
-        for (let fx = px + 20; fx < px + pw - 20; fx += 40) this.items.push({ x: fx, y: py - 34, got: false });
+        this.items.push({ x: px + pw / 2, y: py - 34, got: false });   // 浮空平台只放 1 顆
       }
-      if (Math.random() < 0.55) {
-        const n = 2 + Math.floor(Math.random() * 3);
-        const sx = x + 80 + Math.random() * Math.max(10, len - 80 - n * 40);
-        for (let i = 0; i < n; i++) this.items.push({ x: sx + i * 40, y: this.GROUND - 70, got: false });
+      if (x > 0 && Math.random() < 0.35) {   // 地面約 35% 機率出 1 顆
+        this.items.push({ x: x + 80 + Math.random() * Math.max(10, len - 160), y: this.GROUND - 70, got: false });
       }
       if (x > 900 && Math.random() < Math.min(0.85, 0.42 + this.level * 0.06)) {
         const speed = 1 + Math.random() * 0.8 + Math.min(this.level, 20) * 0.15;
@@ -332,6 +342,7 @@ const Run = {
     p.vy = Math.min(p.vy + 0.62, 14);
 
     // 水平移動：只和地面側邊碰撞
+    const startX = p.x;
     p.x += p.vx;
     if (p.x < this.cam) { p.x = this.cam; p.vx = 0; }
     for (const pl of this.plats) {
@@ -360,6 +371,8 @@ const Run = {
     else if (p.coyote <= 0 && p.jumps === 0) p.jumps = 1;
 
     if (p.y > this.H + 80) this.hurt(true);
+    if (!this.running) return;
+    if (p.x > startX) { this.drain(p.x - startX); if (!this.running) return; }
 
     this.maxX = Math.max(this.maxX, p.x);
     this.cam = Math.max(this.cam, p.x - 320);
@@ -375,7 +388,9 @@ const Run = {
         it.got = true;
         this.bonus += 10;
         this.fruits++;
-        this.pop('+10', it.x, it.y, '#3dff7a');
+        const gain = 0.03 + Math.random() * 0.02;   // 補 3～5% 能量
+        this.energy = Math.min(1, this.energy + gain);
+        this.pop(`+10 ⚡+${Math.round(gain * 100)}%`, it.x, it.y, '#3dff7a');
         Sfx.play('coin');
       }
     }
@@ -425,8 +440,50 @@ const Run = {
     if (p.x > pl.x + 20 && p.x + p.w < pl.x + pl.w - 20) this.lastSafe = { x: p.x, y: pl.y - p.h };
   },
 
+  // 往右前進消耗能量；能量用完改成慢慢扣生命
+  drain(dx) {
+    let rest = dx;
+    if (this.energy > 0) {
+      const used = Math.min(this.energy, rest / ENERGY_PX);
+      this.energy -= used;
+      rest -= used * ENERGY_PX;
+      if (this.energy < 1e-6) this.energy = 0;
+    }
+    if (rest > 0 && this.energy === 0) {
+      this.life = Math.max(0, this.life - rest / LIFE_DRAIN_PX);
+      if (this.life <= 1e-6) { this.life = 0; this.finish(false, '能量耗盡，LIFE 歸零'); }
+    }
+  },
+
+  // 作答結果：答對補滿能量並重置連錯；答錯扣 0.1 格，連錯每次 ×1.1
+  answerQuiz(correct) {
+    if (correct) {
+      this.wrongStreak = 0;
+      this.energy = 1;
+      return '能量已補滿。';
+    }
+    const loss = WRONG_LOSS * WRONG_RATE ** this.wrongStreak;
+    this.wrongStreak++;
+    this.life = Math.max(0, this.life - loss);
+    if (this.life <= 1e-6) this.life = 0;
+    return `生命 -${Number(loss.toFixed(3))} 格${this.life === 0 ? '，生命已歸零' : ''}。`;
+  },
+
+  // 出題時腳下沒有任何地面或平台：移到右邊最近一段地面上
+  rescueFromVoid() {
+    const p = this.p;
+    const below = this.plats.some(pl => pl.x < p.x + p.w && pl.x + pl.w > p.x && pl.y >= p.y + p.h - 2);
+    if (below) return;
+    const next = this.plats.filter(pl => pl.ground && pl.x >= p.x).sort((a, b) => a.x - b.x)[0];
+    if (!next) return;
+    Object.assign(p, { x: next.x + 20, y: next.y - p.h, vx: 0, vy: 0, onGround: true, jumps: 0, coyote: 6 });
+    this.cam = Math.max(this.cam, p.x - 320);
+    this.lastSafe = { x: p.x, y: p.y };
+  },
+
   hurt(fell) {
-    this.life--;
+    this.life = Math.max(0, this.life - 1);
+    if (this.life <= 1e-6) this.life = 0;
     this.inv = 90;
     Sfx.play('hurt');
     this.pop(fell ? 'FALL!' : 'DAMAGE!', this.p.x, this.p.y - 10, '#ff2a3d');
@@ -593,15 +650,42 @@ const Run = {
     c.font = 'italic 900 14px "Arial Black", Impact, sans-serif';
     c.fillStyle = '#3dff7a';
     c.fillText('LIFE', 20, 42);
-    for (let i = 0; i < 3; i++) {
-      c.fillStyle = i < this.life ? '#ff2d95' : '#3a2340';
+    for (let i = 0; i < MAX_LIFE; i++) {
+      const fill = Math.max(0, Math.min(1, this.life - i));   // 這一格剩多少
       c.beginPath();
       c.moveTo(70 + i * 44, 40);
       c.lineTo(108 + i * 44, 40);
       c.lineTo(102 + i * 44, 58);
       c.lineTo(64 + i * 44, 58);
       c.closePath();
+      c.fillStyle = '#3a2340';
       c.fill();
+      if (fill > 0) {
+        c.save();
+        c.clip();
+        c.fillStyle = '#ff2d95';
+        c.fillRect(64 + i * 44, 40, 44 * fill, 18);
+        c.restore();
+      }
+    }
+
+    // 能量條：橘色外框、藍色內容
+    c.fillStyle = '#ffb04d';
+    c.font = 'italic 900 11px "Arial Black", Impact, sans-serif';
+    c.fillText('ENERGY', 20, 68);
+    const ex = 76, ey = 66, ew = 212, eh = 14;
+    c.fillStyle = '#14203a';
+    c.fillRect(ex, ey, ew, eh);
+    c.fillStyle = '#29a3ff';
+    c.fillRect(ex, ey, ew * this.energy, eh);
+    const empty = this.energy === 0;
+    c.lineWidth = 2;
+    c.strokeStyle = empty && Math.floor(performance.now() / 300) % 2 ? '#ff2a3d' : '#ff8a1a';
+    c.strokeRect(ex, ey, ew, eh);
+    if (empty) {
+      c.fillStyle = '#ff6b7a';
+      c.font = 'bold 12px "Microsoft JhengHei", sans-serif';
+      c.fillText('能量耗盡，生命流失中！', ex, ey + eh + 5);
     }
     c.textAlign = 'center';
     c.fillStyle = '#ffe14d';

@@ -174,13 +174,29 @@ test('小方塊跑酷每百分讀後台題庫，作答與音效只存本機且�
   await expect(game.locator('#ex-quiz')).toBeVisible()
   await game.getByRole('button', { name: '不提供並查證', exact: true }).click()
   await expect(game.locator('#quiz-feedback')).toContainText('答對了')
+  await expect(game.locator('#quiz-feedback')).toContainText('能量已補滿')
   expect(await frame.evaluate("JSON.parse(localStorage.getItem('scamcheck-block-parkour-practice')).at(-1).correct")).toBe(true)
+  expect(await frame.evaluate('({life: Run.life, energy: Run.energy})')).toEqual({ life: 5, energy: 1 })
   await game.locator('#quiz-continue').click()
+  // 往右前進才消耗能量；能量用完改成慢慢扣生命
+  const drained = await frame.evaluate('Run.energy = 0.01; Run.drain(32 + 400); ({energy: Run.energy, life: Run.life})') as { energy: number; life: number }
+  expect(drained.energy).toBe(0)
+  expect(drained.life).toBeCloseTo(4.5, 5)
+  // 出題時腳下是虛空：繼續後移到右邊地面
+  await frame.evaluate(`Run.life = 5; Run.gen(Run.genX + 20000);
+    const grounds = Run.plats.filter(pl => pl.ground);
+    const gap = grounds.find((pl, i) => i > 0 && pl.x > Run.p.x + 400 && pl.x - (grounds[i - 1].x + grounds[i - 1].w) >= 60);
+    Object.assign(Run.p, { x: gap.x - 50, y: 300, vx: 0, vy: 0 })`)
   const cleared = await frame.evaluate('Run.bonus = 1000; Run.step(); ({cleared: Run.hasCleared, running: Run.running, paused: Run.paused})')
   expect(cleared).toEqual({ cleared: true, running: true, paused: 'quiz' })
   await game.getByRole('button', { name: '交給陌生人', exact: true }).click()
   await expect(game.locator('#quiz-feedback')).toContainText('正確答案')
+  await expect(game.locator('#quiz-feedback')).toContainText('生命 -0.1 格')
+  expect(await frame.evaluate('Run.life')).toBeCloseTo(4.9, 5)
   await game.locator('#quiz-continue').click()
+  const placed = await frame.evaluate('({paused: Run.paused, onGround: Run.p.onGround, overGround: Run.plats.some(pl => pl.ground && pl.x <= Run.p.x && pl.x + pl.w >= Run.p.x + Run.p.w && pl.y === Run.p.y + Run.p.h)})')
+  expect(placed).toEqual({ paused: false, onGround: true, overGround: true })
+  expect(await frame.evaluate('Run.answerQuiz(false); Run.answerQuiz(false); Run.life')).toBeCloseTo(4.9 - 0.11 - 0.121, 5)
   expect(reads).toBe(2)
   await noHorizontalOverflow(page)
   await page.setViewportSize({ width: 375, height: 900 })
