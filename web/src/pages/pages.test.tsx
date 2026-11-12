@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +6,7 @@ import Check, { validateFile } from './Check'
 import { refreshHealth } from '../components/ui'
 import Result from './Result'
 import Research from './Research'
+import Admin from './Admin'
 import type { AnalysisResult } from '../api'
 
 const health = { status: 'ok', version: '0.1.0', rule_version: 'r', limits: { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 },
@@ -282,5 +283,74 @@ describe('查核設定收合與模型選擇', () => {
     expect(submitted).toEqual([{ url: '/api/analyze/text', body: {
       text: '請立即匯款', query_cofacts: false, query_google: true, query_virustotal: false, use_ai: true, ai_model: 'b-2',
     } }])
+  })
+})
+
+describe('後台分析紀錄與設定', () => {
+  const rec = (o: Record<string, unknown>) => ({ analysis_id: 'b'.repeat(32), created_at: '2026-10-22T00:00:00', media_type: 'text', risk_level: '高', final_level: '高',
+    risk_score: 80, risk_tags: ['urgency'], origin_label: '使用者查核', content_text: null, content_urls: [], content_edited: false, ...o })
+  const setup = (records: unknown[], extra?: (url: string, init?: RequestInit) => unknown) => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      const custom = extra?.(url, init)
+      const stats = { analysis_records: 0, participants: 0, valid_samples: 0, source_check: {}, judgement: {}, feedback: {}, groups: {}, risk_tag_counts: {} }
+      const body = custom !== undefined ? custom : url.startsWith('/api/admin/statistics') ? stats : url.startsWith('/api/admin/analysis-records') && !url.includes('/content') ? records
+        : url.startsWith('/api/admin/responses') ? [] : url === '/api/admin/settings' ? { research_mode: 'simulation', research_group_mode: 'balanced', research_collection_enabled: true,
+          gemini_models: [], gemini_daily_limit: 10, cofacts_enabled: true, cofacts_daily_limit: 1, google_daily_limit: 1, virustotal_daily_limit: 1, content_retention_until: '2026-01-01' } : { updated: true, deleted: true }
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    sessionStorage.setItem('scamcheck_admin_token', 't')
+    return calls
+  }
+  afterEach(() => sessionStorage.clear())
+
+  it('顯示內容與網址，並有編輯遮蔽、刪除內容按鈕；沒有內容時顯示未保存內容', async () => {
+    setup([rec({ content_text: '測試內容', content_urls: ['https://a.cc/x'] }), rec({ analysis_id: 'c'.repeat(32) })])
+    render(<MemoryRouter><Admin /></MemoryRouter>)
+    await userEvent.click(await screen.findByRole('tab', { name: '研究紀錄' }))
+    expect(await screen.findByText('測試內容')).toBeInTheDocument()
+    expect(screen.getByText('https://a.cc/x')).toBeInTheDocument()
+    expect(screen.getByText('https://a.cc/x').closest('a')).toBeNull()
+    expect(screen.getByRole('button', { name: '編輯遮蔽' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刪除內容' })).toBeInTheDocument()
+    expect(screen.getByText('未保存內容')).toBeInTheDocument()
+  })
+
+  it('刪除內容先確認再呼叫 DELETE', async () => {
+    const calls = setup([rec({ content_text: '測試內容' })])
+    const confirmFn = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirmFn)
+    render(<MemoryRouter><Admin /></MemoryRouter>)
+    await userEvent.click(await screen.findByRole('tab', { name: '研究紀錄' }))
+    await userEvent.click(await screen.findByRole('button', { name: '刪除內容' }))
+    expect(confirmFn).toHaveBeenCalledWith('確定刪除這筆訊息內容？刪除後無法復原。')
+    await waitFor(() => expect(calls.some((c) => c.init?.method === 'DELETE' && c.url.endsWith('/content'))).toBe(true))
+  })
+
+  it('編輯遮蔽送出 PATCH', async () => {
+    const calls = setup([rec({ content_text: '測試內容' })])
+    render(<MemoryRouter><Admin /></MemoryRouter>)
+    await userEvent.click(await screen.findByRole('tab', { name: '研究紀錄' }))
+    await userEvent.click(await screen.findByRole('button', { name: '編輯遮蔽' }))
+    const box = screen.getByLabelText('編輯訊息內容')
+    await userEvent.clear(box)
+    await userEvent.type(box, '改過了')
+    await userEvent.click(screen.getByRole('button', { name: '儲存編輯' }))
+    await waitFor(() => expect(calls.find((c) => c.init?.method === 'PATCH')?.init?.body).toBe(JSON.stringify({ content_text: '改過了' })))
+  })
+
+  it('設定：保存日期沒改就不送出，改了才送出', async () => {
+    const calls = setup([])
+    render(<MemoryRouter><Admin /></MemoryRouter>)
+    await userEvent.click(await screen.findByRole('tab', { name: '系統設定' }))
+    const date = await screen.findByLabelText('訊息內容保存到')
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }))
+    await waitFor(() => expect(calls.some((c) => c.init?.method === 'PUT')).toBe(true))
+    expect(JSON.parse(String(calls.find((c) => c.init?.method === 'PUT')?.init?.body))).not.toHaveProperty('content_retention_until')
+    fireEvent.change(date, { target: { value: '2026-12-31' } })
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }))
+    await waitFor(() => expect(calls.filter((c) => c.init?.method === 'PUT')).toHaveLength(2))
+    expect(JSON.parse(String(calls.filter((c) => c.init?.method === 'PUT')[1].init?.body)).content_retention_until).toBe('2026-12-31')
   })
 })

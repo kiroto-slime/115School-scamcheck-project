@@ -131,7 +131,7 @@ function Overview({ call, dataset }: { call: Call; dataset: Dataset }) {
 
 function Records({ call, dataset }: { call: Call; dataset: Dataset }) {
   const { data: rows, reload } = useLoad<any[]>(call, `/api/admin/responses?dataset=${dataset}`)
-  const { data: analyses } = useLoad<any[]>(call, `/api/admin/analysis-records?dataset=${dataset}`)
+  const { data: analyses, reload: reloadAnalyses } = useLoad<any[]>(call, `/api/admin/analysis-records?dataset=${dataset}`)
   const setCat = async (id: string, v: string) => { await call(`/api/admin/responses/${id}`, { method: 'PATCH', body: JSON.stringify({ researcher_category: v || null }) }); reload() }
   if (!rows || !analyses) return <Spinner label="載入紀錄…" />
   return (
@@ -150,12 +150,66 @@ function Records({ call, dataset }: { call: Call; dataset: Dataset }) {
         </div>
         {rows.length === 0 && <p className="text-sm text-slate-600">尚無資料</p>}
       </Section>
-      <Section title={`已同意研究的分析紀錄（最近 ${analyses.length} 筆，不含原文）`}>
-        <ul className="space-y-1 text-sm">{analyses.map((a) => (
-          <li key={a.analysis_id} className="flex flex-wrap justify-between gap-2 border-b py-1"><span>{formatTime(a.created_at)} · {a.media_type} · {a.origin_label}</span><span>綜合 {a.final_level ?? a.risk_level}・規則 {a.risk_level}（{a.risk_score ?? '—'}）{a.risk_tags.join(', ')}</span></li>))}</ul>
+      <Section title={`已同意研究的分析紀錄（最近 ${analyses.length} 筆）`}>
+        <p className="text-xs text-slate-500">內容為已遮蔽個資的版本，超過「訊息內容保存到」日期會自動清空。可疑網址只顯示文字，請勿直接開啟。</p>
+        <ul className="space-y-2 text-sm">{analyses.map((a) => <AnalysisItem key={a.analysis_id} a={a} call={call} onChanged={reloadAnalyses} />)}</ul>
         {analyses.length === 0 && <p className="text-sm text-slate-600">尚無資料</p>}
       </Section>
     </div>
+  )
+}
+
+function AnalysisItem({ a, call, onChanged }: { a: any; call: Call; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const hasContent = typeof a.content_text === 'string'
+  const startEdit = () => { setText(a.content_text ?? ''); setEditing(true) }
+  const saveEdit = async () => {
+    setBusy(true)
+    const r = await call(`/api/admin/analysis-records/${a.analysis_id}/content`, { method: 'PATCH', body: JSON.stringify({ content_text: text }) })
+    setBusy(false)
+    if (r) { setEditing(false); onChanged() }
+  }
+  const remove = async () => {
+    if (!window.confirm('確定刪除這筆訊息內容？刪除後無法復原。')) return
+    setBusy(true)
+    const r = await call(`/api/admin/analysis-records/${a.analysis_id}/content`, { method: 'DELETE' })
+    setBusy(false)
+    if (r) { setEditing(false); onChanged() }
+  }
+  return (
+    <li className="space-y-1 border-b py-2">
+      <div className="flex flex-wrap justify-between gap-2">
+        <span>{formatTime(a.created_at)} · {a.media_type} · {a.origin_label}</span>
+        <span className="break-words">綜合 {a.final_level ?? a.risk_level}・規則 {a.risk_level}（{a.risk_score ?? '—'}）{a.risk_tags.join(', ')}</span>
+      </div>
+      {hasContent ? (
+        <details className="rounded-lg bg-slate-50 p-2">
+          <summary className="cursor-pointer">訊息內容{a.content_edited ? '（已人工編輯）' : ''}</summary>
+          <p className="mt-1 whitespace-pre-wrap break-words">{a.content_text}</p>
+          {a.content_urls.length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-xs">{a.content_urls.map((u: string, i: number) => <li key={i}>網址：<code className="break-all">{u}</code></li>)}</ul>
+          )}
+        </details>
+      ) : <p className="text-xs text-slate-500">未保存內容</p>}
+      {hasContent && !editing && (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary" disabled={busy} onClick={startEdit}>編輯遮蔽</button>
+          <button type="button" className="btn-danger" disabled={busy} onClick={remove}>刪除內容</button>
+        </div>
+      )}
+      {editing && (
+        <div className="space-y-2">
+          <textarea aria-label="編輯訊息內容" className="input min-h-32 break-words" maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />
+          <p className="text-xs text-slate-500">編輯只會改文字內容；網址清單要用「刪除內容」一起清除。</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary" disabled={busy || !text.trim()} onClick={saveEdit}>儲存編輯</button>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => setEditing(false)}>取消</button>
+          </div>
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -313,7 +367,7 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
   const { data, reload } = useLoad<any>(call, '/api/admin/settings')
   const [f, setF] = useState<any>(null)
   const [confirmFormal, setConfirmFormal] = useState(false)
-  useEffect(() => { if (data) setF({ ...data, models_text: modelsToText(data.gemini_models ?? []) }) }, [data])
+  useEffect(() => { if (data) setF({ ...data, content_retention_until: data.content_retention_until ?? '', models_text: modelsToText(data.gemini_models ?? []) }) }, [data])
   const [available, setAvailable] = useState<{ id: string; name: string }[] | null>(null)
   const listModels = async () => { const r = await call<{ models: { id: string; name: string }[] }>('/api/admin/ai/models'); if (r) setAvailable(r.models) }
   if (!f) return <Spinner label="載入設定…" />
@@ -322,7 +376,9 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
     const body = { research_mode: f.research_mode, research_group_mode: f.research_group_mode, research_collection_enabled: f.research_collection_enabled,
       gemini_models: parseModels(f.models_text), gemini_daily_limit: Number(f.gemini_daily_limit),
       cofacts_enabled: Boolean(f.cofacts_enabled), cofacts_daily_limit: Number(f.cofacts_daily_limit),
-      google_daily_limit: Number(f.google_daily_limit), virustotal_daily_limit: Number(f.virustotal_daily_limit) }
+      google_daily_limit: Number(f.google_daily_limit), virustotal_daily_limit: Number(f.virustotal_daily_limit),
+      // 只有改過日期才送出，避免日期過期後存其他設定被擋下
+      ...(f.content_retention_until !== (data.content_retention_until ?? '') ? { content_retention_until: f.content_retention_until } : {}) }
     if (await call('/api/admin/settings', { method: 'PUT', body: JSON.stringify(body) })) { setConfirmFormal(false); onDone('設定已儲存，立即生效'); reload() }
   }
   const set = (k: string, v: unknown) => setF({ ...f, [k]: v })
@@ -338,6 +394,9 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
             <option value="balanced">自動平衡 A／B 組</option><option value="A">全部 A 組（一般防詐資訊）</option><option value="B">全部 B 組（網站風險解釋）</option>
           </select></label>
         <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={f.research_collection_enabled} onChange={(e) => set('research_collection_enabled', e.target.checked)} />蒐集研究資料（研究結束後取消勾選）</label>
+        <label className="block"><span className="label">訊息內容保存到</span>
+          <input className="input" type="date" value={f.content_retention_until} onChange={(e) => set('content_retention_until', e.target.value)} /></label>
+        <p className="text-xs text-slate-500">超過這個日期，已保存的（遮蔽後）訊息內容會自動清空；日期須介於今天到 10 年內。</p>
       </Section>
       <Section title="AI 與外部查詢">
         <label className="block"><span className="label">AI 模型順序（用完一個自動換下一個）</span>
