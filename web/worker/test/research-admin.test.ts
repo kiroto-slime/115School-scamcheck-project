@@ -280,3 +280,80 @@ describe('保存期限', () => {
     expect(await clearExpiredContent(env.DB, s, '2026-01-03')).toBe(0)
   })
 })
+
+const CONTENT_ID_OK = 'a'.repeat(32)
+const CONTENT_ID_NOCONSENT = 'b'.repeat(32)
+
+async function seedContent(id: string, consent: number) {
+  await env.DB.prepare(`INSERT INTO analysis_records (analysis_id, created_at, media_type, source_count, risk_level, risk_tags_json, analysis_status, rule_version,
+    external_ai_used, consent_research, consent_secondary_use, is_demo, result_json, content_text, content_urls_json, content_edited)
+    VALUES (?, ?, 'text', 0, 'low', '[]', 'completed', 'x', 0, ?, 0, 0, '{}', '原始內容', '["https://a.example/x"]', 0)`)
+    .bind(id, new Date().toISOString(), consent).run()
+}
+
+const contentRow = (id: string) => env.DB.prepare('SELECT content_text, content_urls_json, content_edited FROM analysis_records WHERE analysis_id = ?').bind(id)
+  .first<{ content_text: string | null; content_urls_json: string | null; content_edited: number }>()
+
+describe('後台：已保存訊息內容', () => {
+  it('未登入 PATCH／DELETE 回 401', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'PATCH', body: { content_text: 'x' } })).status).toBe(401)
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'DELETE' })).status).toBe(401)
+  })
+
+  it('列表回傳內容欄位', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    const r = await call('/api/admin/analysis-records?dataset=formal', { headers: await adminHeaders() })
+    const rec = (r.json as any[]).find((x) => x.analysis_id === CONTENT_ID_OK) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(rec).toBeTruthy()
+    expect(rec.content_text).toBe('原始內容')
+    expect(rec.content_urls).toEqual(['https://a.example/x'])
+    expect(rec.content_edited).toBe(false)
+  })
+
+  it('PATCH 會遮蔽、標記已編輯並寫稽核', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    const h = await adminHeaders()
+    const r = await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'PATCH', headers: h, body: { content_text: '改成 王小明先生 的帳號 0912345678' } })
+    expect(r.status).toBe(200)
+    expect(r.json).toEqual({ updated: true })
+    const d = await contentRow(CONTENT_ID_OK)
+    expect(d!.content_text).toBe('改成 [姓名]先生 的帳號 [手機]')
+    expect(d!.content_edited).toBe(1)
+    const log = await env.DB.prepare("SELECT target, detail FROM audit_logs WHERE action = 'edit_content' ORDER BY rowid DESC LIMIT 1").first<{ target: string; detail: string | null }>()
+    expect(log!.target).toBe(CONTENT_ID_OK)
+    expect(log!.detail ?? '').not.toContain('王小明')
+  })
+
+  it('PATCH 超過 4000 字回 422；格式不符或找不到回 404', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    const h = await adminHeaders()
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'PATCH', headers: h, body: { content_text: 'a'.repeat(4001) } })).status).toBe(422)
+    expect((await call('/api/admin/analysis-records/bad-id/content', { method: 'PATCH', headers: h, body: { content_text: 'x' } })).status).toBe(404)
+    expect((await call(`/api/admin/analysis-records/${'c'.repeat(32)}/content`, { method: 'PATCH', headers: h, body: { content_text: 'x' } })).status).toBe(404)
+  })
+
+  it('未同意研究的紀錄視同找不到', async () => {
+    await seedContent(CONTENT_ID_NOCONSENT, 0)
+    const h = await adminHeaders()
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_NOCONSENT}/content`, { method: 'PATCH', headers: h, body: { content_text: 'x' } })).status).toBe(404)
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_NOCONSENT}/content`, { method: 'DELETE', headers: h })).status).toBe(404)
+    expect((await contentRow(CONTENT_ID_NOCONSENT))!.content_text).toBe('原始內容')
+  })
+
+  it('DELETE 清空兩個內容欄位', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    const r = await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'DELETE', headers: await adminHeaders() })
+    expect(r.json).toEqual({ deleted: true })
+    const d = await contentRow(CONTENT_ID_OK)
+    expect(d!.content_text).toBeNull()
+    expect(d!.content_urls_json).toBeNull()
+  })
+
+  it('保存日期設定：合法可存取、格式錯誤 422', async () => {
+    const h = await adminHeaders()
+    expect((await call('/api/admin/settings', { method: 'PUT', headers: h, body: { content_retention_until: '2027-06-30' } })).status).toBe(200)
+    expect((await call('/api/admin/settings', { headers: h })).json.content_retention_until).toBe('2027-06-30')
+    expect((await call('/api/admin/settings', { method: 'PUT', headers: h, body: { content_retention_until: '2027/06/30' } })).status).toBe(422)
+  })
+})

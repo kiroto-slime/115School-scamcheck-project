@@ -8,6 +8,7 @@ import { currentModel, modelStates } from '../aimodels'
 import { aiMode, AppSettings, saveSettings } from '../settings'
 import { computeStatistics, exportData } from '../stats'
 import { finalLevelOf, originLabel, savedResult } from '../export-format'
+import { redactPii, stripUrlQueries } from '../redact'
 import { audit, HttpError, newId, nowIso, parseJson } from '../util'
 
 export const admin = new Hono<AppEnv>()
@@ -53,9 +54,36 @@ guarded.get('/backup.json', async (c) => {
 
 guarded.get('/analysis-records', async (c) => {
   const rows = (await c.env.DB.prepare('SELECT * FROM analysis_records WHERE is_demo = ? AND consent_research = 1 ORDER BY created_at DESC LIMIT 200').bind(datasetOf(c) ? 1 : 0)
-    .all<{ analysis_id: string; research_id_nullable: string; created_at: string; media_type: string; risk_level: string; risk_score_nullable: number; risk_tags_json: string; result_json: string; is_demo: number }>()).results
+    .all<{ analysis_id: string; research_id_nullable: string; created_at: string; media_type: string; risk_level: string; risk_score_nullable: number; risk_tags_json: string; result_json: string; is_demo: number; content_text: string | null; content_urls_json: string | null; content_edited: number }>()).results
   return c.json(rows.map((a) => ({ analysis_id: a.analysis_id, research_id: a.research_id_nullable, created_at: a.created_at, media_type: a.media_type,
-    risk_level: a.risk_level, final_level: finalLevelOf(a.risk_level, a.result_json), risk_score: a.risk_score_nullable, risk_tags: parseJson(a.risk_tags_json, []), origin_label: originLabel(savedResult(a.result_json), !!a.is_demo) })))
+    risk_level: a.risk_level, final_level: finalLevelOf(a.risk_level, a.result_json), risk_score: a.risk_score_nullable, risk_tags: parseJson(a.risk_tags_json, []), origin_label: originLabel(savedResult(a.result_json), !!a.is_demo),
+    content_text: a.content_text ?? null, content_urls: parseJson<string[]>(a.content_urls_json, []), content_edited: !!a.content_edited })))
+})
+
+/** 已保存訊息內容：只有同意研究的紀錄才有，編號格式不符或未同意一律視同找不到 */
+const ANALYSIS_ID = /^[a-f0-9]{32}$/
+const contentId = (c: { req: { param: (k: string) => string } }) => {
+  const id = c.req.param('id')
+  if (!ANALYSIS_ID.test(id)) throw new HttpError(404, '找不到這筆分析紀錄。')
+  return id
+}
+
+guarded.patch('/analysis-records/:id/content', async (c) => {
+  const id = contentId(c)
+  const b = await readBody(c, z.object({ content_text: z.string().trim().min(1).max(4000) }))
+  const r = await c.env.DB.prepare('UPDATE analysis_records SET content_text = ?, content_edited = 1 WHERE analysis_id = ? AND consent_research = 1')
+    .bind(redactPii(stripUrlQueries(b.content_text)), id).run()
+  if (!r.meta.changes) throw new HttpError(404, '找不到這筆分析紀錄。')
+  await audit(c.env.DB, c.get('admin'), 'edit_content', id)
+  return c.json({ updated: true })
+})
+
+guarded.delete('/analysis-records/:id/content', async (c) => {
+  const id = contentId(c)
+  const r = await c.env.DB.prepare('UPDATE analysis_records SET content_text = NULL, content_urls_json = NULL WHERE analysis_id = ? AND consent_research = 1').bind(id).run()
+  if (!r.meta.changes) throw new HttpError(404, '找不到這筆分析紀錄。')
+  await audit(c.env.DB, c.get('admin'), 'delete_content', id)
+  return c.json({ deleted: true })
 })
 
 guarded.get('/responses', async (c) => {
@@ -133,6 +161,7 @@ guarded.put('/settings', async (c) => {
     cofacts_daily_limit: z.number().int().min(0).max(100_000),
     google_daily_limit: z.number().int().min(0).max(100_000),
     virustotal_daily_limit: z.number().int().min(0).max(500),
+    content_retention_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }).partial())
   await saveSettings(c.env.DB, b as Partial<AppSettings>)
   await audit(c.env.DB, c.get('admin'), 'update_settings', null, JSON.stringify(b))
