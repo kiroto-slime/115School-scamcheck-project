@@ -1,6 +1,6 @@
 /** 研究統計與匯出資料。只計算資料庫中的實際紀錄；沒有資料時回傳 0 / null，不產生假數據。 */
 import { parseJson } from './util'
-import { ASSIST_ZH, CATEGORY_ZH, CONSENT_ZH, DECISION_ZH, ERROR_ZH, exportText, FEATURE_ZH, finalLevelOf, MATCH_ZH, MEDIA_ZH, NEED_ZH, originLabel, PHASE_ZH, PRODUCT_ZH, PROVIDER_ZH, readableAnalysis, REASON_ZH, REPLY_ZH, REVIEW_ZH, ROLE_ZH, savedResult, STATUS_ZH, stringsOf, yesNo, zh } from './export-format'
+import { ASSIST_ZH, CATEGORY_ZH, CONSENT_ZH, DECISION_ZH, ERROR_ZH, exportText, FEATURE_ZH, finalLevelOf, MATCH_ZH, MEDIA_ZH, NEED_ZH, originLabel, PHASE_ZH, PRODUCT_ZH, PROVIDER_ZH, readableAnalysis, REASON_ZH, REPLY_ZH, REVIEW_ZH, ROLE_ZH, savedResult, STATUS_ZH, stringsOf, technicalRow, yesNo, zh } from './export-format'
 
 const rate = (num: number, den: number) => (den ? Math.round((num / den) * 10000) / 10000 : null)
 
@@ -131,14 +131,15 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
   summary.push(['回饋數', st.feedback.count], ['回饋：有幫助', st.feedback.helpful_yes], ['回饋：沒幫助', st.feedback.helpful_no], ['平均評分', st.feedback.avg_rating ?? '無資料'])
 
   const sheets: Sheet[] = [
-    { name: '查核摘要', dateColumns: [6],
-      headers: ['發生什麼', '多嚴重', '有哪些問題', '建議怎麼處理', '各來源查核結果', '分析編號', '查核時間(UTC)', '資料來源', '媒體類型', '摘要依據', '教材使用提醒'],
+    // 查核時間已是格式化文字，不能列入 dateColumns（否則不會經過 safeCell）
+    { name: '查核摘要', dateColumns: [],
+      headers: ['查核時間（臺灣時間）', '訊息內容', '可疑網址', '多嚴重', 'Gemini 的判斷', '有哪些問題', '建議怎麼處理', '各來源查核結果', '資料來源'],
       rows: analyses.map(readableAnalysis) },
     { name: '統計總覽', dateColumns: [], headers: ['指標', '數值'], rows: summary },
     { name: '分析紀錄', dateColumns: [3],
-      headers: ['資料來源', '分析編號', '研究編號', '建立時間(UTC)', '媒體類型', 'Cofacts比對篇數', '規則風險指數', '規則風險等級', '綜合風險等級', '風險特徵', '分析狀態', '規則版本', '使用外部AI', '同意研究', '同意衍生使用', '風險特徵原始代碼', '分析狀態原始代碼', '完整規則依據'],
+      headers: ['資料來源', '分析編號', '研究編號', '建立時間(UTC)', '媒體類型', 'Cofacts比對篇數', '規則風險指數', '規則風險等級', '綜合風險等級', '風險特徵', '分析狀態', '規則版本', '使用外部AI', '同意研究', '同意衍生使用', '完整規則依據'],
       rows: analyses.map((a) => [originLabel(savedResult(a.result_json), !!a.is_demo), a.analysis_id, a.research_id_nullable, a.created_at, zh(a.media_type, MEDIA_ZH), a.source_count, a.risk_score_nullable, a.risk_level, finalLevelOf(a.risk_level, a.result_json),
-        stringsOf(parseJson<unknown>(a.risk_tags_json, [])).map((s) => zh(s, FEATURE_ZH)).join('、'), zh(a.analysis_status, STATUS_ZH), a.rule_version, yn(a.external_ai_used), yn(a.consent_research), yn(a.consent_secondary_use), stringsOf(parseJson<unknown>(a.risk_tags_json, [])).join(','), a.analysis_status, stringsOf(savedResult(a.result_json).basis).map(exportText).join('\n')]) },
+        stringsOf(parseJson<unknown>(a.risk_tags_json, [])).map((s) => zh(s, FEATURE_ZH)).join('、'), zh(a.analysis_status, STATUS_ZH), a.rule_version, yn(a.external_ai_used), yn(a.consent_research), yn(a.consent_secondary_use), stringsOf(savedResult(a.result_json).basis).map(exportText).join('\n')]) },
     { name: '查核來源', dateColumns: [9],
       headers: ['資料類型', '來源結果編號', '分析編號', '來源', '結果狀態', '比對類型', '來源標題', '來源網址', '查核回覆類型', '查核時間', '授權'],
       rows: sources.map((s) => [analysisOrigins.get(s.analysis_id) ?? '來源待確認', s.source_result_id, s.analysis_id, zh(s.provider, PROVIDER_ZH), zh(s.result_status, STATUS_ZH), zh(s.match_type, MATCH_ZH), exportText(s.source_title), s.source_url, zh(s.reply_type, REPLY_ZH), s.checked_at, s.license_tag]) },
@@ -157,17 +158,20 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
       rows: surveys.map((s) => [tag, s.survey_id, zh(s.respondent_role, ROLE_ZH), zh(s.product, PRODUCT_ZH), s.perceived_value, zh(s.most_needed_feature, NEED_ZH), yn(s.teacher_would_use), yn(s.verbal_interest),
         yn(s.trial_intent), yn(s.payment_intent), s.acceptable_price_range === 'free_only' ? '只接受免費' : s.acceptable_price_range, s.created_at]) },
     { name: '匯出說明', dateColumns: [], headers: ['項目', '說明'], rows: [
-      ['閱讀順序', '先看查核摘要的發生什麼、多嚴重、有哪些問題、建議怎麼處理，再看查核來源與統計總覽。'],
-      ['事件敘述', '僅使用當次保存的 AI 摘要；沒有摘要就明示缺少，不還原原文、不編造故事、不再次呼叫 AI。'],
+      ['閱讀順序', '先看查核摘要的訊息內容、可疑網址、多嚴重、Gemini 的判斷、有哪些問題、建議怎麼處理，再看查核來源與統計總覽；編號、版本與原始代碼集中在最後一頁「技術欄位」。'],
+      ['訊息內容', '僅在使用者同意保存時才有，已遮蔽常見個資；舊紀錄或未同意者顯示「未保存內容」，不還原、不編造。Gemini 的判斷為當次已保存結果，不再次呼叫 AI。'],
       ['風險與正確率', '規則風險指數不是詐騙機率或司法認定。AI 判斷另外列出；查核紀錄數不能當成前後測有效樣本數或準確率。'],
       ['資料分類', '使用者查核與前後測模式分開；DEMO 舊紀錄可能包含真實投稿，來源待確認，未自動重標或搬移。'],
       ['個資與授權', '摘要及原因已再次遮蔽常見手機、Email、身分證、長數字帳號及連結；人名、地址、特殊情節仍可能殘留，公開或教學使用前須人工審查與確認授權。'],
       ['教材範圍', '未同意衍生使用的紀錄不直接作衍生教材；已同意也不代表自動取得公開任何個別紀錄的許可。'],
       ['查無資料', '來源查無資料、未列名單或未發現威脅，都不代表安全。'],
-      ['時間', '日期欄位使用 UTC，臺灣時間為 UTC 加 8 小時。'],
+      ['時間', '查核摘要的時間為臺灣時間；其他頁的日期欄位使用 UTC，臺灣時間為 UTC 加 8 小時。'],
       ['代碼與布林', '常用代碼已轉為中文，是／否表示原有布林值；未知代碼保留「未定義代碼」供追溯，不猜測意思。'],
-      ['資料缺漏', '舊紀錄可能沒有摘要、原因或建議，缺少時清楚標示；完整編號與原始特徵代碼保留於分析紀錄供對照。'],
+      ['資料缺漏', '舊紀錄可能沒有摘要、原因或建議，缺少時清楚標示；完整編號與原始特徵代碼保留於技術欄位頁供對照。'],
     ] },
+    { name: '技術欄位', dateColumns: [2],
+      headers: ['分析編號', '研究編號', '建立時間(UTC)', '規則版本', '規則風險指數', '規則風險等級', '風險特徵原始代碼', '分析狀態原始代碼', '同意研究', '同意衍生使用', '教材使用提醒'],
+      rows: analyses.map(technicalRow) },
   ]
   return { sheets, exported_at: new Date().toISOString(), label: demo ? 'DEMO／舊查核待確認' : '使用者查核／正式研究' }
 }

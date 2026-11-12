@@ -52,7 +52,7 @@ export async function buildWorkbook(data: ExportData): Promise<ArrayBuffer> {
     sheet.headers.forEach((h, i) => {
       let longest = h.length * 2
       for (const row of sheet.rows) longest = Math.max(longest, Math.min(String(row[i] ?? '').length * 1.6, 60))
-      const summaryWidths = [42, 28, 48, 48, 42, 36, 24, 34, 16, 42, 48]
+      const summaryWidths = [20, 56, 36, 48, 48, 48, 48, 42, 30]
       ws.getColumn(i + 1).width = sheet.name === '查核摘要' ? summaryWidths[i] ?? 30 : Math.max(12, Math.min(longest + 2, 60))
     })
   }

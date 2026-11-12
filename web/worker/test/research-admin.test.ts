@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import { clearExpiredContent, purgeExpired } from '../analysis'
+import { twTime } from '../export-format'
 import { DEFAULT_SETTINGS } from '../settings'
 import { adminHeaders, call, count, SCAM } from './helpers'
 
@@ -98,7 +99,7 @@ describe('管理員', () => {
     expect(st.judgement.accuracy).toBeNull()
     expect(st.risk_tag_counts).toEqual({})
     const ex = (await call('/api/admin/export-data', { headers: h })).json
-    expect(ex.sheets.map((s: { name: string }) => s.name)).toEqual(['查核摘要', '統計總覽', '分析紀錄', '查核來源', '研究作答', '風險模式資料集', '同意紀錄', '產品需求問卷', '匯出說明'])
+    expect(ex.sheets.map((s: { name: string }) => s.name)).toEqual(['查核摘要', '統計總覽', '分析紀錄', '查核來源', '研究作答', '風險模式資料集', '同意紀錄', '產品需求問卷', '匯出說明', '技術欄位'])
     expect(ex.sheets.find((s: { name: string }) => s.name === '研究作答').rows).toEqual([])
     const summary = Object.fromEntries(ex.sheets.find((s: { name: string }) => s.name === '統計總覽').rows)
     expect(summary['有效樣本數（完成前後測）']).toBe(0)
@@ -121,17 +122,25 @@ describe('管理員', () => {
     const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
     const a = (await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })).json
     const saved = { ...a, cofacts: { status: 'found', matches: [{ reply_type: 'RUMOR', match_type: 'similar' }] }, ai: { status: 'ok', summary: '冒充客服索取驗證碼，聯絡 0912-345-678 或 a@example.com，前往 https://private.example/token。', risk_level: '低', risk_points: ['索取帳密'], advice: ['改用官方電話確認'] } }
-    await env.DB.prepare('UPDATE analysis_records SET result_json = ? WHERE analysis_id = ?').bind(JSON.stringify(saved), a.analysis_id).run()
+    await env.DB.prepare('UPDATE analysis_records SET result_json = ?, content_text = ?, content_urls_json = ? WHERE analysis_id = ?')
+      .bind(JSON.stringify(saved), '請把驗證碼給我，電話 0912-345-678，網址 https://bit.ly/abc', JSON.stringify(['https://bit.ly/abc']), a.analysis_id).run()
     const other = (await call('/api/analyze/text', { body: { text: SCAM } })).json
     const h = await adminHeaders()
     const ex = (await call('/api/admin/export-data?dataset=formal', { headers: h })).json
     const sheet = ex.sheets.find((s: { name: string }) => s.name === '查核摘要')
+    expect(sheet.headers).toEqual(['查核時間（臺灣時間）', '訊息內容', '可疑網址', '多嚴重', 'Gemini 的判斷', '有哪些問題', '建議怎麼處理', '各來源查核結果', '資料來源'])
+    expect(sheet.dateColumns).toEqual([])
     const row = Object.fromEntries(sheet.headers.map((k: string, i: number) => [k, sheet.rows[0][i]]))
     expect(sheet.rows).toHaveLength(1)
-    expect(row['發生什麼']).toContain('冒充客服索取驗證碼')
+    expect(row['查核時間（臺灣時間）']).toMatch(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/)
+    expect(row['訊息內容']).toContain('請把驗證碼給我')
+    expect(row['訊息內容']).not.toContain('0912-345-678')
+    expect(row['可疑網址']).toBe('https://bit.ly/abc')
+    expect(row['Gemini 的判斷']).toContain('低：')
+    expect(row['Gemini 的判斷']).toContain('冒充客服索取驗證碼')
     expect(row['多嚴重']).toContain('規則：高')
     expect(row['多嚴重']).toContain('很可能是詐騙，請不要照訊息的指示做')
-    expect(row['多嚴重']).toContain('Gemini：低')
+    expect(row['多嚴重']).not.toContain('Gemini')
     expect(row['多嚴重']).toContain('綜合等級：高（依據：關鍵字規則）')
     expect(row['有哪些問題']).toContain('要求付款或匯款')
     expect(row['有哪些問題']).toContain('Cofacts 有相同或相似的訊息被查核為不實')
@@ -139,20 +148,31 @@ describe('管理員', () => {
     expect(row['建議怎麼處理']).toContain('不要依對方指示匯款')
     expect(row['建議怎麼處理']).toContain('AI：改用官方電話確認')
     expect(row['各來源查核結果']).toContain('找到相關資料')
-    expect(row['教材使用提醒']).toContain('未同意衍生使用')
+    const tech = ex.sheets.find((s: { name: string }) => s.name === '技術欄位')
+    expect(ex.sheets[ex.sheets.length - 1].name).toBe('技術欄位')
+    expect(tech.headers).toEqual(['分析編號', '研究編號', '建立時間(UTC)', '規則版本', '規則風險指數', '規則風險等級', '風險特徵原始代碼', '分析狀態原始代碼', '同意研究', '同意衍生使用', '教材使用提醒'])
+    const trow = Object.fromEntries(tech.headers.map((k: string, i: number) => [k, tech.rows[0][i]]))
+    expect(trow['分析編號']).toBe(a.analysis_id)
+    expect(trow['教材使用提醒']).toContain('未同意衍生使用')
     expect(JSON.stringify(ex)).not.toMatch(/0912-345-678|a@example.com|private\.example/)
     expect(JSON.stringify(ex)).not.toContain(other.analysis_id)
+  })
+
+  it('twTime 轉成臺灣時間，無效字串原樣回傳', () => {
+    expect(twTime('2026-11-12T08:05:00.000Z')).toBe('2026/11/12 16:05')
+    expect(twTime('不是日期')).toBe('不是日期')
   })
 
   it('沒有摘要或歷史結果欄位損壞時不編故事，保留舊分類且未知代碼可追溯', async () => {
     const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
     const a = (await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })).json
-    await env.DB.prepare("UPDATE analysis_records SET is_demo = 1, result_json = ?, risk_tags_json = ? WHERE analysis_id = ?").bind('{"ai":{"status":"error","summary":"錯誤資訊不能當事件"},"features":"壞資料","basis":{},"safe_actions":null}', '["future_tag"]', a.analysis_id).run()
+    await env.DB.prepare("UPDATE analysis_records SET is_demo = 1, content_text = NULL, content_urls_json = NULL, result_json = ?, risk_tags_json = ? WHERE analysis_id = ?").bind('{"ai":{"status":"error","summary":"錯誤資訊不能當事件"},"features":"壞資料","basis":{},"safe_actions":null}', '["future_tag"]', a.analysis_id).run()
     const h = await adminHeaders()
     const ex = (await call('/api/admin/export-data?dataset=demo', { headers: h })).json
     const sheet = ex.sheets.find((s: { name: string }) => s.name === '查核摘要')
-    expect(sheet.rows[0][0]).toContain('未保存事件敘述')
-    expect(sheet.rows[0][0]).not.toContain('錯誤資訊不能當事件')
+    expect(sheet.rows[0][1]).toBe('未保存內容（舊紀錄或未同意保存）')
+    expect(sheet.rows[0][4]).toBe('查詢失敗')
+    expect(JSON.stringify(sheet.rows[0])).not.toContain('錯誤資訊不能當事件')
     expect(JSON.stringify(sheet.rows[0])).toContain('來源待確認')
     expect(JSON.stringify(ex)).toContain('未定義代碼：future_tag')
     expect(await env.DB.prepare('SELECT is_demo FROM analysis_records WHERE analysis_id = ?').bind(a.analysis_id).first()).toMatchObject({ is_demo: 1 })

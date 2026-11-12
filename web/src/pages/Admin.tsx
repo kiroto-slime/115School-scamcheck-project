@@ -336,7 +336,7 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
   return (
     <div className="space-y-4">
       <Section title="匯出研究資料">
-        <p className="text-sm">匯出目前選擇的資料集（{dataset === 'demo' ? 'DEMO／舊查核待確認' : '使用者查核／正式研究'}）為 Excel。先看「查核摘要」的發生什麼、多嚴重、有哪些問題與建議怎麼處理；另外保留分析紀錄、查核來源、研究作答、風險模式資料集、同意紀錄、產品需求問卷、統計總覽及匯出說明。</p>
+        <p className="text-sm">匯出目前選擇的資料集（{dataset === 'demo' ? 'DEMO／舊查核待確認' : '使用者查核／正式研究'}）為 Excel。先看「查核摘要」的訊息內容、可疑網址、多嚴重、Gemini 的判斷、有哪些問題與建議怎麼處理；另外保留分析紀錄、查核來源、研究作答、風險模式資料集、同意紀錄、產品需求問卷、統計總覽及匯出說明。</p>
         <p className="text-sm text-slate-600">只整理已保存的結果，不還原投稿原文或補編事件。常見個資會再次遮蔽；公開或製作教材前，仍須人工檢查並確認同意範圍。</p>
         {busy ? <Spinner label={busy} /> : (
           <div className="flex flex-col gap-2 sm:flex-row">

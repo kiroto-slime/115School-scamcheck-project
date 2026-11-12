@@ -55,6 +55,9 @@ export function originLabel(result: JsonObject, demo: boolean) {
 export interface ExportAnalysis {
   analysis_id: string; created_at: string; result_json: string; risk_level: string; risk_score_nullable: number | null;
   is_demo: number; consent_secondary_use: number; media_type: string
+  content_text?: string | null; content_urls_json?: string | null
+  research_id_nullable?: string | null; rule_version?: string | null; risk_tags_json?: string | null
+  analysis_status?: string | null; consent_research?: number
 }
 
 /** 從保存的結果算出綜合等級（與結論卡相同） */
@@ -103,13 +106,41 @@ export function readableAnalysis(a: ExportAnalysis) {
     ['cofacts', objectOf(result.cofacts).status], ['google_factcheck', objectOf(result.fact_check).status],
     ['tw165', objectOf(u.tw165).status], ['safe_browsing', objectOf(u.safe_browsing).status], ['virustotal', objectOf(u.virustotal).status],
   ]
+  // 訊息內容：已是遮蔽後文字，這裡再遮一次個資；刻意不經 exportText，讓管理者看得到網址
+  const content = typeof a.content_text === 'string' && a.content_text ? redactPii(a.content_text).replace(/\0/g, '') : '未保存內容（舊紀錄或未同意保存）'
+  const urls = stringsOf(parseJson<unknown>(a.content_urls_json, [])).map((s) => s.replace(/\0/g, '')).join('\n')
+  const gemini = aiOk
+    ? `${exportText(ai.risk_level) || '未提供等級'}：${summary || '未保存摘要'}`
+    : zh(ai.status, STATUS_ZH, '未使用')
   return [
-    summary || `未保存事件敘述。${features.length ? `僅能確認偵測特徵：${features.join('、')}；無法還原原始事件。` : '無法還原原始事件。'}`,
-    `${riskConclusion(final.level)}\n綜合等級：${final.level}${final.sources.length ? `（依據：${final.sources.join('、')}）` : ''}\n規則：${a.risk_level}（規則風險指數 ${a.risk_score_nullable ?? '無資料'}／100）\n${aiOk ? `Gemini：${exportText(ai.risk_level) || '未提供等級'}` : `Gemini：${zh(ai.status, STATUS_ZH, '未保存狀態')}`}\n綜合等級取各來源最高者，不是詐騙機率或司法認定。`,
+    twTime(a.created_at),
+    content,
+    urls || '無',
+    `${riskConclusion(final.level)}\n綜合等級：${final.level}${final.sources.length ? `（依據：${final.sources.join('、')}）` : ''}\n規則：${a.risk_level}（規則風險指數 ${a.risk_score_nullable ?? '無資料'}／100）\n綜合等級取各來源最高者，不是詐騙機率或司法認定。`,
+    gemini,
     issues, actions,
     lines(statuses.filter(([, status]) => typeof status === 'string').map(([provider, status]) => `${PROVIDER_ZH[provider]}：${zh(status, STATUS_ZH)}`)) || '未保存來源查核狀態。',
-    a.analysis_id, a.created_at, originLabel(result, !!a.is_demo), zh(a.media_type, MEDIA_ZH),
-    summary ? '當次已保存的 AI 摘要，非投稿原文；AI 可能出錯。' : '僅列當次保存的規則結果，未生成事件故事。',
+    originLabel(result, !!a.is_demo),
+  ]
+}
+
+/** 技術欄位頁：給研究者對照用的編號、版本與原始代碼 */
+export function technicalRow(a: ExportAnalysis) {
+  return [
+    a.analysis_id, a.research_id_nullable ?? null, a.created_at, a.rule_version ?? null, a.risk_score_nullable, a.risk_level,
+    stringsOf(parseJson<unknown>(a.risk_tags_json, [])).join(','), a.analysis_status ?? null,
+    yesNo(a.consent_research), yesNo(a.consent_secondary_use),
     a.consent_secondary_use ? '已同意衍生用途；仍須確認授權範圍、人工審查及去識別後才能作教材，不代表可直接公開。' : '未同意衍生使用；僅供已同意的校內研究，不直接作衍生教材或公開。',
   ]
+}
+
+/** UTC ISO 字串轉臺灣時間 YYYY/MM/DD HH:mm；無效字串原樣回傳 */
+export function twTime(iso: string): string {
+  const d = new Date(iso)
+  if (typeof iso !== 'string' || isNaN(d.getTime())) return iso
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d).map((p) => [p.type, p.value]))
+  const hour = parts.hour === '24' ? '00' : parts.hour
+  return `${parts.year}/${parts.month}/${parts.day} ${hour}:${parts.minute}`
 }

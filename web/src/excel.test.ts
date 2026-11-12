@@ -20,6 +20,18 @@ describe('Excel 匯出', () => {
     expect(safeCell(3)).toBe(3)
   })
 
+  it('查核摘要頁的訊息內容以 = 開頭時，儲存格值以單引號開頭', async () => {
+    const buf = await buildWorkbook({
+      exported_at: '2026-11-12T00:00:00Z', label: 't',
+      sheets: [{ name: '查核摘要', headers: ['查核時間（臺灣時間）', '訊息內容'], dateColumns: [], rows: [['2026/11/12 16:05', '=1+1']] }],
+    })
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf)
+    const ws = wb.getWorksheet('查核摘要')!
+    expect(ws.getCell('B2').value).toBe("'=1+1")
+    expect(ws.getCell('A2').value).toBe('2026/11/12 16:05')
+  })
+
   it('產生可開啟的檔案：中文欄名、凍結標題、篩選、日期格式、沒有公式', async () => {
     const buf = await buildWorkbook(data)
     const wb = new ExcelJS.Workbook()
