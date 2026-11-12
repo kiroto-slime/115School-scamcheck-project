@@ -210,5 +210,17 @@ export async function purgeExpired(db: D1Database, s: AppSettings): Promise<numb
     ])
   }
   if (list.length) await audit(db, 'system', 'retention_purge', null, `刪除 ${list.length} 筆過期分析紀錄`)
+  await clearExpiredContent(db, s)
   return list.length
+}
+
+/** 超過後台設定的保存日期後，清空訊息內容與可疑網址（統計欄位保留）；回傳實際清空的筆數。 */
+export async function clearExpiredContent(db: D1Database, s: AppSettings, today = nowIso().slice(0, 10)): Promise<number> {
+  if (today <= s.content_retention_until) return 0
+  const r = await db
+    .prepare('UPDATE analysis_records SET content_text = NULL, content_urls_json = NULL WHERE content_text IS NOT NULL OR content_urls_json IS NOT NULL')
+    .run()
+  const n = r.meta.changes ?? 0
+  if (n > 0) await audit(db, 'system', 'content_purge', null, `清空 ${n} 筆訊息內容`)
+  return n
 }

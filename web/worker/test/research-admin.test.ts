@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { purgeExpired } from '../analysis'
+import { clearExpiredContent, purgeExpired } from '../analysis'
 import { DEFAULT_SETTINGS } from '../settings'
 import { adminHeaders, call, count, SCAM } from './helpers'
 
@@ -264,5 +264,19 @@ describe('保存期限', () => {
     expect((await call(`/api/analysis/${aid}`)).status).toBe(404)
     expect(await purgeExpired(env.DB, DEFAULT_SETTINGS)).toBe(1)
     expect(await count('analysis_records', `analysis_id = '${aid}'`)).toBe(0)
+  })
+
+  it('超過保存日期清空內容但保留統計', async () => {
+    const aid = (await call('/api/analyze/text', { body: { text: SCAM } })).json.analysis_id
+    await env.DB.prepare("UPDATE analysis_records SET content_text = '遮蔽後的訊息', content_urls_json = '[\"https://example.com\"]', content_edited = 1 WHERE analysis_id = ?").bind(aid).run()
+    const s = { ...DEFAULT_SETTINGS, content_retention_until: '2026-01-01' }
+    expect(await clearExpiredContent(env.DB, s, '2026-01-01')).toBe(0)
+    expect(await clearExpiredContent(env.DB, s, '2026-01-02')).toBe(1)
+    const row = await env.DB.prepare('SELECT content_text, content_urls_json, content_edited, risk_level FROM analysis_records WHERE analysis_id = ?').bind(aid).first<Record<string, unknown>>()
+    expect(row?.content_text).toBeNull()
+    expect(row?.content_urls_json).toBeNull()
+    expect(row?.content_edited).toBe(1)
+    expect(row?.risk_level).toBeTruthy()
+    expect(await clearExpiredContent(env.DB, s, '2026-01-03')).toBe(0)
   })
 })
