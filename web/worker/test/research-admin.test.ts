@@ -356,4 +356,33 @@ describe('後台：已保存訊息內容', () => {
     expect((await call('/api/admin/settings', { headers: h })).json.content_retention_until).toBe('2027-06-30')
     expect((await call('/api/admin/settings', { method: 'PUT', headers: h, body: { content_retention_until: '2027/06/30' } })).status).toBe(422)
   })
+
+  it('保存日期必須真實存在且介於今天到 10 年後', async () => {
+    const h = await adminHeaders()
+    const day = (offsetYears: number, offsetDays = 0) => {
+      const d = new Date(Date.now() + offsetDays * 86_400_000)
+      d.setUTCFullYear(d.getUTCFullYear() + offsetYears)
+      return d.toISOString().slice(0, 10)
+    }
+    for (const bad of ['2027-13-45', '0000-00-00', '9999-99-99', day(0, -1), day(11)]) {
+      const r = await call('/api/admin/settings', { method: 'PUT', headers: h, body: { content_retention_until: bad } })
+      expect(r.status, bad).toBe(422)
+    }
+    expect((await call('/api/admin/settings', { method: 'PUT', headers: h, body: { content_retention_until: day(0) } })).status).toBe(200)
+  })
+
+  it('無效 Bearer token 對 PATCH／DELETE 回 401', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    const headers = { Authorization: 'Bearer invalid' }
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'PATCH', headers, body: { content_text: 'x' } })).status).toBe(401)
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'DELETE', headers })).status).toBe(401)
+  })
+
+  it('已刪除的內容不能被 PATCH 寫回', async () => {
+    await seedContent(CONTENT_ID_OK, 1)
+    const h = await adminHeaders()
+    await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'DELETE', headers: h })
+    expect((await call(`/api/admin/analysis-records/${CONTENT_ID_OK}/content`, { method: 'PATCH', headers: h, body: { content_text: '寫回' } })).status).toBe(404)
+    expect((await contentRow(CONTENT_ID_OK))!.content_text).toBeNull()
+  })
 })

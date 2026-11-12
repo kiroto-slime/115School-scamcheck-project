@@ -71,7 +71,7 @@ const contentId = (c: { req: { param: (k: string) => string } }) => {
 guarded.patch('/analysis-records/:id/content', async (c) => {
   const id = contentId(c)
   const b = await readBody(c, z.object({ content_text: z.string().trim().min(1).max(4000) }))
-  const r = await c.env.DB.prepare('UPDATE analysis_records SET content_text = ?, content_edited = 1 WHERE analysis_id = ? AND consent_research = 1')
+  const r = await c.env.DB.prepare('UPDATE analysis_records SET content_text = ?, content_edited = 1 WHERE analysis_id = ? AND consent_research = 1 AND content_text IS NOT NULL')
     .bind(redactPii(stripUrlQueries(b.content_text)), id).run()
   if (!r.meta.changes) throw new HttpError(404, '找不到這筆分析紀錄。')
   await audit(c.env.DB, c.get('admin'), 'edit_content', id)
@@ -161,7 +161,14 @@ guarded.put('/settings', async (c) => {
     cofacts_daily_limit: z.number().int().min(0).max(100_000),
     google_daily_limit: z.number().int().min(0).max(100_000),
     virustotal_daily_limit: z.number().int().min(0).max(500),
-    content_retention_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    content_retention_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((v) => {
+      const d = new Date(v + 'T00:00:00Z')
+      if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) return false
+      const today = nowIso().slice(0, 10)
+      const max = new Date(today + 'T00:00:00Z')
+      max.setUTCFullYear(max.getUTCFullYear() + 10)
+      return v >= today && v <= max.toISOString().slice(0, 10)
+    }, '保存日期必須是真實存在的日期，且介於今天到 10 年後之間。'),
   }).partial())
   await saveSettings(c.env.DB, b as Partial<AppSettings>)
   await audit(c.env.DB, c.get('admin'), 'update_settings', null, JSON.stringify(b))
