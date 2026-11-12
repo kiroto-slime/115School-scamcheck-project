@@ -124,6 +124,25 @@ export interface NeedsManualText {
 }
 
 const RID_KEY = 'scamcheck_research_id'
+const CV_KEY = 'consentVersion'
+/** 這台裝置上次記錄同意時的同意書版本；讀寫失敗（如無痕模式）視為沒有版本，會重新記錄同意 */
+export const consentVersion = {
+  get: (): string | null => {
+    try {
+      return localStorage.getItem(CV_KEY)
+    } catch {
+      return null
+    }
+  },
+  set: (v: string) => {
+    try {
+      localStorage.setItem(CV_KEY, v)
+    } catch {
+      /* 私密模式等情況忽略 */
+    }
+  },
+}
+
 export const researchId = {
   get: (): string | null => {
     try {

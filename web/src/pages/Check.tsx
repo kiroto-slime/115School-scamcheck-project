@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
+import { api, ApiError, consentVersion, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
 import { NaughtyButton } from '../components/NaughtyButton'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
@@ -65,6 +65,8 @@ export default function Check() {
   const [fileError, setFileError] = useState<string | null>(null)
   const [queryCofacts, setQueryCofacts] = useState(true)
   const [useAi, setUseAi] = useState(true)
+  const retentionUntil = health?.modes.content_retention_until
+  const retentionText = retentionUntil ? retentionUntil.slice(0, 10).replace(/-/g, '/') : '專題結束'
   const aiAvailable = health?.modes.ai === 'gemini'
   const cofactsAvailable = health?.modes.cofacts === 'live'
   // 每分鐘次數用完的模型會冷卻：用讀到狀態的時間，每秒倒數
@@ -184,10 +186,15 @@ export default function Check() {
     // 管理頁關閉研究蒐集時不建立同意紀錄，避免預設勾選讓查核失敗
     if (!consentB || health?.modes.research_collection_enabled === false) return undefined
     let rid = researchId.get()
-    if (!rid) {
-      const r = await postJson<{ research_id: string }>('/api/consent', { purpose: 'research', status: 'granted' })
+    const currentVersion = health?.modes.consent_version
+    // 沒有編號，或舊版同意：以目前版本重新記錄（有編號就沿用）
+    if (!rid || (currentVersion && consentVersion.get() !== currentVersion)) {
+      const r = await postJson<{ research_id: string; consent_version?: string }>('/api/consent',
+        rid ? { research_id: rid, purpose: 'research', status: 'granted' } : { purpose: 'research', status: 'granted' })
       rid = r.research_id
       researchId.set(rid)
+      const v = r.consent_version ?? currentVersion
+      if (v) consentVersion.set(v)
     }
     if (consentC) await postJson('/api/consent', { research_id: rid, purpose: 'secondary_use', status: 'granted' })
     return rid
@@ -322,7 +329,7 @@ export default function Check() {
         <h2 className="text-sm font-medium">資料處理說明</h2>
         <p className="text-sm text-slate-700">
           送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；
-          分析結果（不含原文）保存 30 天後自動刪除。<Link to="/privacy">詳細說明</Link>
+          沒有勾選「協助校內研究」時，分析結果（不含原文）保存 30 天後自動刪除。<Link to="/privacy">詳細說明</Link>
         </p>
         <p className="text-xs text-slate-500">外部查詢只會送至已勾選的服務，可展開下方設定調整。圖片、影片只有勾選 Gemini 時才會送到 Google，請勿上傳他人隱私。</p>
         <details className="setting-disclosure" id="service-settings">
@@ -364,7 +371,7 @@ export default function Check() {
             onChange={(e) => { setConsentB(e.target.checked); if (!e.target.checked) setConsentC(false) }} />
           <span className="min-w-0 text-sm">
             <span className="block font-medium">協助校內研究（選填）</span>
-            <span className="mt-1 block text-xs text-slate-500">同意將這次的匿名分析結果（風險特徵、等級，不含原文）用於校內研究。</span>
+            <span className="mt-1 block text-xs text-slate-500">同意後會保存這次已遮蔽個資的訊息內容與可疑網址及分析結果，供校內防詐研究，保存至 {retentionText} 後刪除。取消勾選則不保存內容。</span>
           </span>
         </label>
         <label className="consent-row">

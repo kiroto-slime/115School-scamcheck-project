@@ -110,7 +110,7 @@ export default function Research() {
             <li><strong>目的：</strong>了解青少年判斷可疑訊息的方式，以及不同查核輔助是否有幫助。</li>
             <li><strong>流程：</strong>先判斷一則模擬訊息 → 再判斷另一則難度相同的訊息，並看過系統提供的輔助資訊後再判斷一次。約 3 分鐘。</li>
             <li><strong>蒐集項目：</strong>你的判斷、理由選項、作答時間、隨機研究編號。不蒐集姓名、學號、電話等身分資訊。</li>
-            <li><strong>使用者與期間：</strong>僅本專題研究團隊與指導老師使用；研究結束或最長 1 年後刪除。</li>
+            <li><strong>使用者與期間：</strong>僅本專題研究團隊與指導老師使用；研究結束或最長 2 年後刪除。</li>
             <li><strong>第三方：</strong>研究測驗不會把資料傳給第三方。</li>
             <li><strong>風險：</strong>極低；模擬內容可能讓你聯想到過去不愉快的經驗，可隨時停止。</li>
             <li><strong>撤回：</strong>可在 <Link to="/privacy">隱私與研究說明</Link> 用研究編號撤回或刪除資料。</li>

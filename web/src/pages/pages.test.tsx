@@ -10,7 +10,7 @@ import Admin from './Admin'
 import type { AnalysisResult } from '../api'
 
 const health = { status: 'ok', version: '0.1.0', rule_version: 'r', limits: { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 },
-  modes: { cofacts: 'live', google: 'off', virustotal: 'off', tw165: { available: true, updated_at: null, count: 1 }, ai: 'disabled', ai_model: null, research_mode: 'simulation', research_collection_enabled: true, admin_configured: true } }
+  modes: { cofacts: 'live', google: 'off', virustotal: 'off', tw165: { available: true, updated_at: null, count: 1 }, ai: 'disabled', ai_model: null, research_mode: 'simulation', research_collection_enabled: true, admin_configured: true, consent_version: '2026.11-v0.3', content_retention_until: '2027-12-31' } }
 
 const result: AnalysisResult = {
   analysis_id: 'a'.repeat(32), created_at: '2026-10-22T00:00:00', media_type: 'text', risk_level: '高', risk_score: 80, risk_tags: ['urgency'],
@@ -61,6 +61,30 @@ describe('Check page', () => {
     await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
     expect(calls).toContain('/api/analyze/text')
     expect(calls).toContain('/api/consent') // 「協助校內研究」預設勾選
+  })
+
+  it('查核頁說明會保存遮蔽後的內容與期限', async () => {
+    mockFetch(() => ({}))
+    refreshHealth()
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /></Routes></MemoryRouter>)
+    expect(await screen.findByText(/已遮蔽個資的訊息內容與可疑網址/)).toBeInTheDocument()
+    expect(await screen.findByText(/2027\/12\/31/)).toBeInTheDocument()
+  })
+
+  it('舊版同意會用新版重新記錄', async () => {
+    localStorage.setItem('scamcheck_research_id', 'r'.repeat(32))
+    localStorage.setItem('consentVersion', '2026.10-v0.2')
+    const consents: Record<string, unknown>[] = []
+    mockFetch((url, init) => { if (url === '/api/consent') { consents.push(JSON.parse(String(init?.body))); return { research_id: 'r'.repeat(32), consent_version: '2026.11-v0.3' } } return result })
+    refreshHealth()
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    await screen.findByText(/2027\/12\/31/)
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
+    expect(consents).toEqual([{ research_id: 'r'.repeat(32), purpose: 'research', status: 'granted' }])
+    expect(localStorage.getItem('consentVersion')).toBe('2026.11-v0.3')
+    localStorage.clear()
   })
 
   it('取消勾選「協助校內研究」就不建立研究紀錄', async () => {
