@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
+import { api, ApiError, consentRecorded, currentAiModel, postJson, researchId, researchWithdrawn, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
 import { NaughtyButton } from '../components/NaughtyButton'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
@@ -128,8 +128,10 @@ export default function Check() {
   const vtAvailable = health?.modes.virustotal === 'live'
   const [queryGoogle, setQueryGoogle] = useState(true)
   const [queryVt, setQueryVt] = useState(false)
-  // 協助校內研究：預設勾選，可取消（使用者決定）
-  const [consentB, setConsentB] = useState(true)
+  // 協助校內研究：預設勾選，可取消（使用者決定）；撤回過同意的裝置預設不勾
+  const [wasWithdrawn] = useState(() => researchWithdrawn.get())
+  const [consentB, setConsentB] = useState(() => !wasWithdrawn)
+  const [consentNotice, setConsentNotice] = useState<string | null>(null)
   const [consentC, setConsentC] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   // 分析進行中重新整理或關分頁：瀏覽器先問一次，避免分析中斷、結果不見
@@ -182,16 +184,35 @@ export default function Check() {
     setPreview(url)
   }
 
+  // 研究同意是選填：記錄失敗（例如請求太頻繁）時不擋查核，這次改成不帶研究編號送出
   async function ensureConsent(): Promise<string | undefined> {
+    if (!consentB) return undefined
+    // 使用者自己勾選並送出，代表重新同意，清掉「已撤回」旗標
+    researchWithdrawn.clear()
     // 管理頁關閉研究蒐集時不建立同意紀錄，避免預設勾選讓查核失敗
-    if (!consentB || health?.modes.research_collection_enabled === false) return undefined
+    if (health?.modes.research_collection_enabled === false) return undefined
     let rid = researchId.get()
-    // 每次送出都以目前版本記錄同意（有編號就沿用），確保伺服器的同意版本與畫面說明一致
-    const r = await postJson<{ research_id: string }>('/api/consent',
-      rid ? { research_id: rid, purpose: 'research', status: 'granted' } : { purpose: 'research', status: 'granted' })
-    rid = r.research_id
-    researchId.set(rid)
-    if (consentC) await postJson('/api/consent', { research_id: rid, purpose: 'secondary_use', status: 'granted' })
+    // 同一分頁、同一編號只記錄一次（以目前版本），之後的查核沿用，避免撞到頻率限制
+    if (!rid || !consentRecorded.has(rid, 'research')) {
+      try {
+        const r = await postJson<{ research_id: string }>('/api/consent',
+          rid ? { research_id: rid, purpose: 'research', status: 'granted' } : { purpose: 'research', status: 'granted' })
+        rid = r.research_id
+        researchId.set(rid)
+        consentRecorded.mark(rid, 'research')
+      } catch {
+        setConsentNotice('這次未能記錄研究同意，查核照常進行，訊息內容不會被保存。')
+        return undefined
+      }
+    }
+    if (consentC && !consentRecorded.has(rid, 'secondary_use')) {
+      try {
+        await postJson('/api/consent', { research_id: rid, purpose: 'secondary_use', status: 'granted' })
+        consentRecorded.mark(rid, 'secondary_use')
+      } catch {
+        setConsentNotice('這次未能記錄「教育產品與商業研究」同意，查核照常進行；下次送出時會再試一次。')
+      }
+    }
     return rid
   }
 
@@ -199,6 +220,7 @@ export default function Check() {
     e.preventDefault()
     setError(null)
     setManualHint(null)
+    setConsentNotice(null)
     if (mode === 'text' && text.trim().length === 0) return setError('請輸入要查核的訊息內容。')
     if (mode !== 'text' && !file) return setError(fileError ?? '請先選擇檔案。')
     try {
@@ -376,11 +398,13 @@ export default function Check() {
             <span className="mt-1 block text-xs text-slate-500">同意將經審查的衍生統計資料用於教育產品及商業可行性研究。</span>
           </span>
         </label>
+        {wasWithdrawn && !consentB && <p className="text-xs text-slate-500">你先前已撤回研究同意，如要再次參與請自行勾選。</p>}
         <p className="text-xs text-slate-500">不參與研究也能使用查核服務。</p>
           </div>
         </details>
       </fieldset>
 
+      {consentNotice && <Alert kind="warn">{consentNotice}</Alert>}
       {error && <Alert kind="error">{error}</Alert>}
       {busy ? <Spinner label={busy} /> : (
         <NaughtyButton empty={mode === 'text' ? !text.trim() : !file} hint={mode === 'text' ? '先貼上要查核的訊息喔！' : '先選擇要上傳的檔案喔！'}>開始查核</NaughtyButton>

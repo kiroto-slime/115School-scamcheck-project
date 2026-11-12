@@ -148,6 +148,51 @@ export const researchId = {
   },
 }
 
+/** 使用者撤回過研究同意：查核頁「協助校內研究」改成預設不勾，要自己勾選才算重新同意 */
+const WITHDRAWN_KEY = 'researchWithdrawn'
+export const researchWithdrawn = {
+  get: (): boolean => {
+    try {
+      return localStorage.getItem(WITHDRAWN_KEY) === '1'
+    } catch {
+      return false
+    }
+  },
+  set: () => {
+    try {
+      localStorage.setItem(WITHDRAWN_KEY, '1')
+    } catch {
+      /* 私密模式等情況忽略 */
+    }
+  },
+  clear: () => {
+    try {
+      localStorage.removeItem(WITHDRAWN_KEY)
+    } catch {
+      /* ignore */
+    }
+  },
+}
+
+/** 同一分頁、同一研究編號已記錄過的同意（避免每次查核都重送、撞到頻率限制） */
+export const consentRecorded = {
+  key: (rid: string, purpose: 'research' | 'secondary_use') => (purpose === 'research' ? `consentRecorded:${rid}` : `consentRecorded:${rid}:${purpose}`),
+  has: (rid: string, purpose: 'research' | 'secondary_use'): boolean => {
+    try {
+      return sessionStorage.getItem(consentRecorded.key(rid, purpose)) === '1'
+    } catch {
+      return false
+    }
+  },
+  mark: (rid: string, purpose: 'research' | 'secondary_use') => {
+    try {
+      sessionStorage.setItem(consentRecorded.key(rid, purpose), '1')
+    } catch {
+      /* 私密模式等情況忽略 */
+    }
+  },
+}
+
 export const formatTime = (iso: string) => {
   const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
   return isNaN(d.getTime()) ? iso : d.toLocaleString('zh-TW', { hour12: false })

@@ -30,7 +30,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }))
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear() })
 
 describe('validateFile', () => {
   it('rejects unsupported formats and oversize files', () => {
@@ -103,6 +103,82 @@ describe('Check page', () => {
     render(<MemoryRouter><Privacy /></MemoryRouter>)
     await userEvent.click(screen.getByRole('button', { name: /撤回/ }))
     await waitFor(() => expect(localStorage.getItem('scamcheck_research_id')).toBeNull())
+  })
+
+  it('撤回後開查核頁，「協助校內研究」預設不勾；手動勾選送出後清除撤回旗標', async () => {
+    const rid = 'R' + 'B'.repeat(12)
+    localStorage.setItem('scamcheck_research_id', rid)
+    mockFetch(() => ({ message: '已撤回' }))
+    render(<MemoryRouter><Privacy /></MemoryRouter>)
+    await userEvent.click(screen.getByRole('button', { name: /撤回/ }))
+    await waitFor(() => expect(localStorage.getItem('researchWithdrawn')).toBe('1'))
+    cleanup()
+    const calls: string[] = []
+    mockFetch((url) => { calls.push(url); return url === '/api/consent' ? { research_id: 'R' + 'C'.repeat(12) } : result })
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    const box = screen.getByLabelText(/協助校內研究（選填）/) as HTMLInputElement
+    expect(box.checked).toBe(false)
+    expect(screen.getByText(/你先前已撤回研究同意/)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+    await userEvent.click(box)
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
+    expect(calls).toContain('/api/consent')
+    expect(localStorage.getItem('researchWithdrawn')).toBeNull()
+  })
+
+  it('撤回後不勾選就送出：不呼叫同意 API，旗標保留', async () => {
+    localStorage.setItem('researchWithdrawn', '1')
+    const calls: string[] = []
+    mockFetch((url) => { calls.push(url); return result })
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
+    expect(calls).not.toContain('/api/consent')
+    expect(localStorage.getItem('researchWithdrawn')).toBe('1')
+  })
+
+  it('同分頁連送兩次查核，只記錄一次研究同意', async () => {
+    const rid = 'R' + 'D'.repeat(12)
+    const calls: string[] = []
+    const bodies: Record<string, unknown>[] = []
+    mockFetch((url, init) => {
+      calls.push(url)
+      if (url === '/api/analyze/text') bodies.push(JSON.parse(String(init?.body)))
+      return url === '/api/consent' ? { research_id: rid } : result
+    })
+    for (let i = 0; i < 2; i++) {
+      render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+      await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+      await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+      await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
+      cleanup()
+    }
+    expect(calls.filter((u) => u === '/api/consent')).toHaveLength(1)
+    expect(bodies).toHaveLength(2)
+    expect(bodies.every((b) => b.research_id === rid)).toBe(true)
+  })
+
+  it('記錄同意回 429 時查核照常送出、不帶研究編號，並顯示提示', async () => {
+    const bodies: Record<string, unknown>[] = []
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/health') return json(health)
+      if (url === '/api/consent') return json({ error: '請求太頻繁，請稍候一分鐘再試。' }, 429)
+      if (url === '/api/analyze/text') { bodies.push(JSON.parse(String(init?.body))); await gate; return json(result) }
+      return json({})
+    }))
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '請立即匯款')
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    expect(await screen.findByText('這次未能記錄研究同意，查核照常進行，訊息內容不會被保存。')).toBeInTheDocument()
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).not.toHaveProperty('research_id')
+    release()
+    await waitFor(() => expect(screen.getByText('結果頁')).toBeInTheDocument())
   })
 
   it('取消勾選「協助校內研究」就不建立研究紀錄', async () => {

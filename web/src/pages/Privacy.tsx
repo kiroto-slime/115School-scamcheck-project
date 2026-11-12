@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ApiError, postJson, researchId } from '../api'
+import { ApiError, postJson, researchId, researchWithdrawn } from '../api'
 import { Alert, Section } from '../components/ui'
 
 export default function Privacy() {
@@ -15,6 +15,8 @@ export default function Privacy() {
         ? await postJson<{ message: string }>('/api/consent', { research_id: rid.trim(), purpose: 'research', status: 'withdrawn' })
         : await postJson<{ message: string }>('/api/privacy/delete', { research_id: rid.trim() })
       if ((kind === 'delete' || kind === 'withdraw') && researchId.get() === rid.trim()) researchId.clear()
+      // 撤回後查核頁不再預設勾選「協助校內研究」，避免下次查核又自動同意
+      if (kind === 'withdraw') researchWithdrawn.set()
       setMsg({ kind: 'success', text: r.message })
     } catch (e) {
       setMsg({ kind: 'error', text: e instanceof ApiError ? e.message : '操作失敗，請稍後再試。' })
