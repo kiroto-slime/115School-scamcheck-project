@@ -435,6 +435,23 @@ describe('後台分析紀錄與設定', () => {
     expect(screen.getByText('未保存內容')).toBeInTheDocument()
   })
 
+  it('匯出區預設選使用者查核並顯示筆數；全選會匯出兩個資料集', async () => {
+    const calls = setup([rec({}), rec({ analysis_id: 'c'.repeat(32) })], (url) =>
+      url.startsWith('/api/admin/export-data') ? { sheets: [], exported_at: '2026-11-13T00:00:00Z', label: 'test' } : url === '/api/admin/audit-logs' ? [] : undefined)
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }))
+    // jsdom 不支援下載連結的導覽，改成只記錄點擊
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    render(<MemoryRouter><Admin /></MemoryRouter>)
+    await userEvent.click(await screen.findByRole('tab', { name: '匯出與資料管理' }))
+    expect(await screen.findByRole('radio', { name: /使用者查核／正式研究/ })).toBeChecked()
+    expect(await screen.findByRole('button', { name: /將匯出 2 筆/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /全選/ }))
+    await userEvent.click(screen.getByRole('button', { name: /將匯出 4 筆/ }))
+    await screen.findByText('已匯出 2 個 Excel 檔（正式、DEMO 各一）')
+    const exports = calls.filter((c) => c.url.startsWith('/api/admin/export-data')).map((c) => c.url)
+    expect(exports).toEqual(['/api/admin/export-data?dataset=formal', '/api/admin/export-data?dataset=demo'])
+  })
+
   it('刪除內容先確認再呼叫 DELETE', async () => {
     const calls = setup([rec({ content_text: '測試內容' })])
     const confirmFn = vi.fn(() => true)

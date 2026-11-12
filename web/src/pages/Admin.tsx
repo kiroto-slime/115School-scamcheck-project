@@ -19,7 +19,8 @@ const CAT_ZH: Record<string, string> = { '': '未分類', ignored_link: '忽略�
 export default function Admin() {
   const [token, setToken] = useState<string | null>(getToken())
   const [tab, setTab] = useState<Tab>('overview')
-  const [dataset, setDataset] = useState<Dataset>('demo')
+  // 預設看「使用者查核／正式研究」：一般查核都在這裡，避免誤匯出只有舊測試的 DEMO
+  const [dataset, setDataset] = useState<Dataset>('formal')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -48,7 +49,7 @@ export default function Admin() {
       </div>
       <label className="flex items-center gap-2 text-sm">資料集：
         <select className="input min-h-11 w-auto" value={dataset} onChange={(e) => setDataset(e.target.value as Dataset)}>
-          <option value="demo">DEMO／舊查核待確認</option><option value="formal">使用者查核／正式研究</option>
+          <option value="formal">使用者查核／正式研究（一般查核都在這裡）</option><option value="demo">DEMO／舊查核待確認（10/23 以前的測試）</option>
         </select>
       </label>
       <p className="text-sm text-slate-600">一般查核與前後測研究模式分開管理。舊查核維持原分類，DEMO 中可能包含使用者紀錄，請看每筆來源；尚未確認前不要清除。</p>
@@ -311,16 +312,32 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
   const [confirmClear, setConfirmClear] = useState(false)
   const { data: logs, reload } = useLoad<any[]>(call, '/api/admin/audit-logs')
   const day = new Date().toISOString().slice(0, 10)
+  // 匯出區自己選資料集；「全選」= 兩個資料集各下載一個檔案（DEMO 與正式不能混在同一檔）
+  const [pick, setPick] = useState<Dataset | 'all'>(dataset)
+  const { data: formalRows } = useLoad<any[]>(call, '/api/admin/analysis-records?dataset=formal')
+  const { data: demoRows } = useLoad<any[]>(call, '/api/admin/analysis-records?dataset=demo')
+  const info = (rows: any[] | null | undefined) =>
+    !rows ? '讀取中…' : rows.length === 0 ? '0 筆' : `${rows.length >= 200 ? '200 筆以上' : `${rows.length} 筆`}，最新 ${formatTime(rows[0].created_at)}`
+  const count = (rows: any[] | null | undefined) => rows?.length ?? 0
+  const total = pick === 'all' ? count(formalRows) + count(demoRows) : count(pick === 'formal' ? formalRows : demoRows)
   const exportExcel = async () => {
+    const targets: Dataset[] = pick === 'all' ? ['formal', 'demo'] : [pick]
     setBusy('產生 Excel 中…')
     try {
-      const data = await call<ExportData>(`/api/admin/export-data?dataset=${dataset}`)
-      if (!data) return
-      downloadBlob(await buildWorkbook(data), `識詐數據庫_${dataset === 'demo' ? 'DEMO' : '正式'}_${day}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      onDone('已匯出 Excel')
+      for (const ds of targets) {
+        const data = await call<ExportData>(`/api/admin/export-data?dataset=${ds}`)
+        if (!data) return
+        downloadBlob(await buildWorkbook(data), `識詐數據庫_${ds === 'demo' ? 'DEMO' : '正式'}_${day}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      }
+      onDone(targets.length > 1 ? '已匯出 2 個 Excel 檔（正式、DEMO 各一）' : '已匯出 Excel')
       reload()
-    } catch (e) { onError(e instanceof Error ? e.message : '匯出失敗') } finally { setBusy(null) }
+    } catch (e) { onError(e instanceof Error ? e.message : '匯出失敗，請重新整理後再試一次。') } finally { setBusy(null) }
   }
+  const choices: [Dataset | 'all', string, string][] = [
+    ['formal', '使用者查核／正式研究', `一般查核都在這裡：${info(formalRows)}`],
+    ['demo', 'DEMO／舊查核待確認', `10/23 以前的測試：${info(demoRows)}`],
+    ['all', '全選', '兩個都匯出，會下載 2 個檔案'],
+  ]
   const backup = async () => {
     setBusy('產生備份中…')
     try {
@@ -336,11 +353,21 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
   return (
     <div className="space-y-4">
       <Section title="匯出研究資料">
-        <p className="text-sm">匯出目前選擇的資料集（{dataset === 'demo' ? 'DEMO／舊查核待確認' : '使用者查核／正式研究'}）為 Excel。先看「查核摘要」的訊息內容、可疑網址、多嚴重、Gemini 的判斷、有哪些問題與建議怎麼處理；另外保留分析紀錄、查核來源、研究作答、風險模式資料集、同意紀錄、產品需求問卷、統計總覽及匯出說明。</p>
-        <p className="text-sm text-slate-600">只整理已保存的結果，不還原投稿原文或補編事件。常見個資會再次遮蔽；公開或製作教材前，仍須人工檢查並確認同意範圍。</p>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">要匯出哪個資料集？（只含有同意研究的紀錄）</legend>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {choices.map(([v, label, desc]) => (
+              <label key={v} className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border-2 p-3 ${pick === v ? 'border-teal-600 bg-teal-50' : 'border-slate-300'}`}>
+                <input type="radio" name="export-dataset" className="mt-1 h-5 w-5" checked={pick === v} onChange={() => setPick(v)} />
+                <span className="min-w-0 break-words"><span className="block font-medium">{label}</span><span className="block text-xs text-slate-600">{desc}</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <p className="text-sm text-slate-600">先看第一頁「查核摘要」：訊息內容（遮蔽後）、可疑網址、多嚴重、Gemini 的判斷、問題與建議；11/12 以前的紀錄沒有保存訊息內容。公開或製作教材前，仍須人工檢查並確認同意範圍。</p>
         {busy ? <Spinner label={busy} /> : (
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button className="btn-primary" onClick={exportExcel}>匯出研究資料（.xlsx）</button>
+            <button className="btn-primary" onClick={exportExcel} disabled={total === 0}>匯出研究資料（.xlsx，將匯出 {total >= 200 ? '200 筆以上' : `${total} 筆`}）</button>
             <button className="btn-secondary" onClick={backup}>下載完整備份（.json）</button>
           </div>
         )}
