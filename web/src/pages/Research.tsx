@@ -118,11 +118,11 @@ export default function Research() {
           </ul>
           <label className="flex min-h-11 items-start gap-3">
             <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={b} onChange={(e) => { setB(e.target.checked); if (!e.target.checked) setC(false) }} />
-            <span><strong>B.</strong> 我自願將匿名作答資料用於校內研究（參與測驗必須勾選）。</span>
+            <span>我自願將匿名作答資料用於校內研究（參與測驗必須勾選）。</span>
           </label>
           <label className={`flex min-h-11 items-start gap-3 ${b ? '' : 'opacity-50'}`}>
             <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={!b} checked={c} onChange={(e) => setC(e.target.checked)} />
-            <span><strong>C.</strong>（選填）我同意將經審查的衍生統計資料用於教育產品及商業可行性研究。</span>
+            <span>（選填）我同意將經審查的衍生統計資料用於教育產品及商業可行性研究。</span>
           </label>
           <p className="text-sm text-slate-600">不同意也沒關係，你仍可使用 <Link to="/check">防詐查核</Link>。</p>
           {busy ? <Spinner label="準備中…" /> : <button className="btn-primary" disabled={!b} onClick={start}>同意並開始</button>}
