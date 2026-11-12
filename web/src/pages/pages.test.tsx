@@ -132,7 +132,7 @@ describe('Result page', () => {
     await screen.findByText('Cofacts 查核結果')
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.replace(/^\d/, ''))
     // 結論卡在最上面，詳細結果收在「查看完整分析」裡，回饋在最下面
-    expect(headings).toEqual(['很可能是詐騙，請不要照訊息的指示做', 'Cofacts 查核結果', '網址安全檢查', '規則分析結果', 'AI 分析（Google Gemini）', '綜合風險指數', '查核來源與時間', '這次結果對你有幫助嗎？'])
+    expect(headings).toEqual(['很可能是詐騙，請不要照訊息的指示做', 'Cofacts 查核結果', '網址安全檢查', '規則分析結果', 'AI 分析（Google Gemini）', '規則風險指數', '查核來源與時間', '這次結果對你有幫助嗎？'])
     expect(screen.getByText('查看完整分析').closest('details')).not.toHaveAttribute('open')
     // 建議行動跟結論卡在一起（不在收起來的區塊裡）
     const conclusion = screen.getByRole('region', { name: /很可能是詐騙/ })
@@ -162,12 +162,22 @@ describe('Result page with Gemini', () => {
     ai: { provider: 'gemini', status: 'ok', is_demo: false, external: true, model: 'gemini-3.8-flash', risk_points: [], advice: [], media_description: null, ...ai } })
   const showResult = () => render(<MemoryRouter initialEntries={['/result/' + 'a'.repeat(32)]}><Routes><Route path="/result/:id" element={<Result />} /></Routes></MemoryRouter>)
 
-  it('AI 判得比規則輕：結論卡提醒以較高風險為準，Gemini 的回答照樣顯示', async () => {
+  it('AI 判得比規則輕：綜合等級維持較高的規則結果，Gemini 的回答照樣顯示', async () => {
     mockFetch(() => aiResult({ summary: '這是官方正常通知。', risk_level: '低' }))
     showResult()
-    expect(await screen.findByText(/AI 與規則判斷不一致/)).toBeInTheDocument()
-    const card = screen.getByRole('region', { name: /很可能是詐騙/ })
+    const card = await screen.findByRole('region', { name: /很可能是詐騙/ })
+    expect(card).toHaveTextContent('依據：關鍵字規則')
+    expect(card).toHaveTextContent('各來源判斷：關鍵字規則 高、Gemini 低')
     expect(card).toHaveTextContent('Gemini 的判斷（低）：這是官方正常通知。')
+    expect(card).not.toHaveTextContent('風險指數')
+  })
+
+  it('規則資訊不足但 Gemini 判高：結論卡直接顯示高風險', async () => {
+    mockFetch(() => aiResult({ summary: '冒充客服要求操作 ATM。', risk_level: '高' }, { risk_level: '資訊不足', risk_score: 0, features: [] }))
+    showResult()
+    const card = await screen.findByRole('region', { name: /很可能是詐騙/ })
+    expect(card).toHaveAttribute('data-risk', '高')
+    expect(card).toHaveTextContent('依據：Gemini')
   })
 
   it('訊息試圖操控 AI：結論卡顯示警告，Gemini 的回答照樣顯示', async () => {

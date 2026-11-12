@@ -152,7 +152,7 @@ function Records({ call, dataset }: { call: Call; dataset: Dataset }) {
       </Section>
       <Section title={`已同意研究的分析紀錄（最近 ${analyses.length} 筆，不含原文）`}>
         <ul className="space-y-1 text-sm">{analyses.map((a) => (
-          <li key={a.analysis_id} className="flex flex-wrap justify-between gap-2 border-b py-1"><span>{formatTime(a.created_at)} · {a.media_type} · {a.origin_label}</span><span>{a.risk_level}（{a.risk_score ?? '—'}）{a.risk_tags.join(', ')}</span></li>))}</ul>
+          <li key={a.analysis_id} className="flex flex-wrap justify-between gap-2 border-b py-1"><span>{formatTime(a.created_at)} · {a.media_type} · {a.origin_label}</span><span>綜合 {a.final_level ?? a.risk_level}・規則 {a.risk_level}（{a.risk_score ?? '—'}）{a.risk_tags.join(', ')}</span></li>))}</ul>
         {analyses.length === 0 && <p className="text-sm text-slate-600">尚無資料</p>}
       </Section>
     </div>

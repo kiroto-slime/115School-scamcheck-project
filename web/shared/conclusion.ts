@@ -27,18 +27,42 @@ export function mainReasons(d: ConclusionData): string[] {
   return out.slice(0, 5)
 }
 
+export type FinalLevel = '高' | '中' | '低' | '資訊不足'
 const RANK: Record<string, number> = { 低: 1, 中: 2, 高: 3 }
+const LEVELS: FinalLevel[] = ['資訊不足', '低', '中', '高']
+
+export interface FinalRiskInput extends ConclusionData {
+  risk_level: string
+  ai?: { status?: string; risk_level?: string | null }
+}
+
+export interface FinalRisk {
+  /** 結論卡顯示的綜合等級 */
+  level: FinalLevel
+  /** 造成這個等級的來源（可能多個同等級） */
+  sources: string[]
+  /** 各來源的判斷，供結論卡小字列出 */
+  parts: { name: string; level: string }[]
+}
 
 /**
- * 比較規則與 AI 的風險等級：
- * - ai_lower：AI 判得比規則輕（可能被訊息內容誤導），結論卡不放 AI 摘要
- * - ai_higher：AI 判得比規則重，以較高風險為準
- * 任一方「資訊不足／無法判斷」時，只有 AI 判得較重才算不一致。
+ * 綜合風險等級：規則、Gemini、網址名單、Cofacts 取最高的那個。
+ * 讓沒有相關知識的使用者一眼看到最需要注意的結果；
+ * 全部來源都沒有結果時才是「資訊不足」（不代表安全）。
  */
-export function aiAgreement(ruleLevel: string, aiLevel: string | null | undefined): 'agree' | 'ai_lower' | 'ai_higher' | 'unknown' {
-  const ai = RANK[aiLevel ?? '']
-  if (!ai) return 'unknown'
-  const rule = RANK[ruleLevel] ?? 0
-  if (ai === rule) return 'agree'
-  return ai < rule ? 'ai_lower' : 'ai_higher'
+export function finalRisk(d: FinalRiskInput): FinalRisk {
+  const parts: { name: string; level: string }[] = [{ name: '關鍵字規則', level: d.risk_level }]
+  if (d.ai?.status === 'ok' && d.ai.risk_level) parts.push({ name: 'Gemini', level: d.ai.risk_level })
+  const u = d.url_checks
+  if (u?.tw165?.status === 'listed') parts.push({ name: '165 涉詐網站名單', level: '高' })
+  if (u?.safe_browsing?.status === 'found') parts.push({ name: 'Google 安全瀏覽', level: '高' })
+  if (u?.virustotal?.status === 'found') parts.push({ name: 'VirusTotal', level: '中' })
+  // 不實訊息不一定是詐騙，只算中
+  if (d.cofacts?.matches?.some((m) => m.reply_type === 'RUMOR')) parts.push({ name: 'Cofacts 查核', level: '中' })
+  const top = Math.max(0, ...parts.map((p) => RANK[p.level] ?? 0))
+  return {
+    level: LEVELS[top],
+    sources: top ? parts.filter((p) => RANK[p.level] === top).map((p) => p.name) : [],
+    parts,
+  }
 }

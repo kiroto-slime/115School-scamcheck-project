@@ -39,7 +39,6 @@ export default function History() {
               <li key={h.id} className="card space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <RiskBadge level={h.level} />
-                  {h.score !== null && <span className="text-sm text-slate-600">風險指數 {h.score}</span>}
                   <span className="text-sm text-slate-500">{MEDIA_ZH[h.media] ?? h.media} · {formatTime(h.at)}</span>
                 </div>
                 {h.reason && <p className="break-words text-slate-700">{h.reason}</p>}

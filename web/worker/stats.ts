@@ -1,6 +1,6 @@
 /** 研究統計與匯出資料。只計算資料庫中的實際紀錄；沒有資料時回傳 0 / null，不產生假數據。 */
 import { parseJson } from './util'
-import { ASSIST_ZH, CATEGORY_ZH, CONSENT_ZH, DECISION_ZH, ERROR_ZH, exportText, FEATURE_ZH, MATCH_ZH, MEDIA_ZH, NEED_ZH, originLabel, PHASE_ZH, PRODUCT_ZH, PROVIDER_ZH, readableAnalysis, REASON_ZH, REPLY_ZH, REVIEW_ZH, ROLE_ZH, savedResult, STATUS_ZH, stringsOf, yesNo, zh } from './export-format'
+import { ASSIST_ZH, CATEGORY_ZH, CONSENT_ZH, DECISION_ZH, ERROR_ZH, exportText, FEATURE_ZH, finalLevelOf, MATCH_ZH, MEDIA_ZH, NEED_ZH, originLabel, PHASE_ZH, PRODUCT_ZH, PROVIDER_ZH, readableAnalysis, REASON_ZH, REPLY_ZH, REVIEW_ZH, ROLE_ZH, savedResult, STATUS_ZH, stringsOf, yesNo, zh } from './export-format'
 
 const rate = (num: number, den: number) => (den ? Math.round((num / den) * 10000) / 10000 : null)
 
@@ -136,8 +136,8 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
       rows: analyses.map(readableAnalysis) },
     { name: '統計總覽', dateColumns: [], headers: ['指標', '數值'], rows: summary },
     { name: '分析紀錄', dateColumns: [3],
-      headers: ['資料來源', '分析編號', '研究編號', '建立時間(UTC)', '媒體類型', 'Cofacts比對篇數', '規則風險指數', '規則風險等級', '風險特徵', '分析狀態', '規則版本', '使用外部AI', '同意研究', '同意衍生使用', '風險特徵原始代碼', '分析狀態原始代碼', '完整規則依據'],
-      rows: analyses.map((a) => [originLabel(savedResult(a.result_json), !!a.is_demo), a.analysis_id, a.research_id_nullable, a.created_at, zh(a.media_type, MEDIA_ZH), a.source_count, a.risk_score_nullable, a.risk_level,
+      headers: ['資料來源', '分析編號', '研究編號', '建立時間(UTC)', '媒體類型', 'Cofacts比對篇數', '規則風險指數', '規則風險等級', '綜合風險等級', '風險特徵', '分析狀態', '規則版本', '使用外部AI', '同意研究', '同意衍生使用', '風險特徵原始代碼', '分析狀態原始代碼', '完整規則依據'],
+      rows: analyses.map((a) => [originLabel(savedResult(a.result_json), !!a.is_demo), a.analysis_id, a.research_id_nullable, a.created_at, zh(a.media_type, MEDIA_ZH), a.source_count, a.risk_score_nullable, a.risk_level, finalLevelOf(a.risk_level, a.result_json),
         stringsOf(parseJson<unknown>(a.risk_tags_json, [])).map((s) => zh(s, FEATURE_ZH)).join('、'), zh(a.analysis_status, STATUS_ZH), a.rule_version, yn(a.external_ai_used), yn(a.consent_research), yn(a.consent_secondary_use), stringsOf(parseJson<unknown>(a.risk_tags_json, [])).join(','), a.analysis_status, stringsOf(savedResult(a.result_json).basis).map(exportText).join('\n')]) },
     { name: '查核來源', dateColumns: [9],
       headers: ['資料類型', '來源結果編號', '分析編號', '來源', '結果狀態', '比對類型', '來源標題', '來源網址', '查核回覆類型', '查核時間', '授權'],

@@ -1,7 +1,7 @@
 /** 匯出用中文呈現：只整理已保存結果，不重做查核或產生事件。 */
 import { redactPii, RULES } from './rules'
 import { parseJson } from './util'
-import { mainReasons, riskConclusion } from '../shared/conclusion'
+import { finalRisk, mainReasons, riskConclusion } from '../shared/conclusion'
 
 export type JsonObject = Record<string, unknown>
 export const objectOf = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {}
@@ -57,6 +57,20 @@ export interface ExportAnalysis {
   is_demo: number; consent_secondary_use: number; media_type: string
 }
 
+/** 從保存的結果算出綜合等級（與結論卡相同） */
+export function finalLevelOf(riskLevel: string, resultJson: string | null | undefined) {
+  const result = savedResult(resultJson)
+  const ai = objectOf(result.ai)
+  const u = objectOf(result.url_checks)
+  const cofacts = objectOf(result.cofacts)
+  return finalRisk({
+    risk_level: riskLevel,
+    ai: { status: String(ai.status ?? ''), risk_level: typeof ai.risk_level === 'string' ? ai.risk_level : null },
+    cofacts: { matches: Array.isArray(cofacts.matches) ? cofacts.matches.map(objectOf).map((m) => ({ reply_type: typeof m.reply_type === 'string' ? m.reply_type : null })) : [] },
+    url_checks: { tw165: { status: String(objectOf(u.tw165).status ?? '') }, safe_browsing: { status: String(objectOf(u.safe_browsing).status ?? '') }, virustotal: { status: String(objectOf(u.virustotal).status ?? '') } },
+  }).level
+}
+
 export function readableAnalysis(a: ExportAnalysis) {
   const result = savedResult(a.result_json)
   const ai = objectOf(result.ai)
@@ -65,12 +79,15 @@ export function readableAnalysis(a: ExportAnalysis) {
   const features = Array.isArray(result.features) ? result.features.map(objectOf).map((f) => exportText(f.label)).filter(Boolean) : []
   const u = objectOf(result.url_checks)
   const cofacts = objectOf(result.cofacts)
-  const reasons = mainReasons({
+  const reasonInput = {
     features: Array.isArray(result.features) ? result.features.map(objectOf).filter((f) => typeof f.label === 'string').map((f) => ({ label: exportText(f.label), triggers: stringsOf(f.triggers).map(exportText) })) : [],
     cofacts: { matches: Array.isArray(cofacts.matches) ? cofacts.matches.map(objectOf).map((m) => ({ reply_type: typeof m.reply_type === 'string' ? m.reply_type : null })) : [] },
     fact_check: { status: String(objectOf(result.fact_check).status ?? '') },
     url_checks: { tw165: { status: String(objectOf(u.tw165).status ?? '') }, safe_browsing: { status: String(objectOf(u.safe_browsing).status ?? '') }, virustotal: { status: String(objectOf(u.virustotal).status ?? '') } },
-  })
+  }
+  const reasons = mainReasons(reasonInput)
+  // 綜合等級：與結果頁結論卡相同（各來源取最高）
+  const final = finalRisk({ ...reasonInput, risk_level: a.risk_level, ai: { status: String(ai.status ?? ''), risk_level: typeof ai.risk_level === 'string' ? ai.risk_level : null } })
   const basis = stringsOf(result.basis)
   const issues = lines([
     ...reasons.map((s) => `結果頁主要原因：${s}`),
@@ -88,7 +105,7 @@ export function readableAnalysis(a: ExportAnalysis) {
   ]
   return [
     summary || `未保存事件敘述。${features.length ? `僅能確認偵測特徵：${features.join('、')}；無法還原原始事件。` : '無法還原原始事件。'}`,
-    `${riskConclusion(a.risk_level)}\n規則：${a.risk_level}（風險指數 ${a.risk_score_nullable ?? '無資料'}／100）\n${aiOk ? `AI：${exportText(ai.risk_level) || '未提供等級'}（與規則分開）` : `AI：${zh(ai.status, STATUS_ZH, '未保存狀態')}`}\n風險指數不是詐騙機率或司法認定。`,
+    `${riskConclusion(final.level)}\n綜合等級：${final.level}${final.sources.length ? `（依據：${final.sources.join('、')}）` : ''}\n規則：${a.risk_level}（規則風險指數 ${a.risk_score_nullable ?? '無資料'}／100）\n${aiOk ? `Gemini：${exportText(ai.risk_level) || '未提供等級'}` : `Gemini：${zh(ai.status, STATUS_ZH, '未保存狀態')}`}\n綜合等級取各來源最高者，不是詐騙機率或司法認定。`,
     issues, actions,
     lines(statuses.filter(([, status]) => typeof status === 'string').map(([provider, status]) => `${PROVIDER_ZH[provider]}：${zh(status, STATUS_ZH)}`)) || '未保存來源查核狀態。',
     a.analysis_id, a.created_at, originLabel(result, !!a.is_demo), zh(a.media_type, MEDIA_ZH),

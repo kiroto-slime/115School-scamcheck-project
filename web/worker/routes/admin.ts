@@ -7,7 +7,7 @@ import { Gemini } from '../gemini'
 import { currentModel, modelStates } from '../aimodels'
 import { aiMode, AppSettings, saveSettings } from '../settings'
 import { computeStatistics, exportData } from '../stats'
-import { originLabel, savedResult } from '../export-format'
+import { finalLevelOf, originLabel, savedResult } from '../export-format'
 import { audit, HttpError, newId, nowIso, parseJson } from '../util'
 
 export const admin = new Hono<AppEnv>()
@@ -55,7 +55,7 @@ guarded.get('/analysis-records', async (c) => {
   const rows = (await c.env.DB.prepare('SELECT * FROM analysis_records WHERE is_demo = ? AND consent_research = 1 ORDER BY created_at DESC LIMIT 200').bind(datasetOf(c) ? 1 : 0)
     .all<{ analysis_id: string; research_id_nullable: string; created_at: string; media_type: string; risk_level: string; risk_score_nullable: number; risk_tags_json: string; result_json: string; is_demo: number }>()).results
   return c.json(rows.map((a) => ({ analysis_id: a.analysis_id, research_id: a.research_id_nullable, created_at: a.created_at, media_type: a.media_type,
-    risk_level: a.risk_level, risk_score: a.risk_score_nullable, risk_tags: parseJson(a.risk_tags_json, []), origin_label: originLabel(savedResult(a.result_json), !!a.is_demo) })))
+    risk_level: a.risk_level, final_level: finalLevelOf(a.risk_level, a.result_json), risk_score: a.risk_score_nullable, risk_tags: parseJson(a.risk_tags_json, []), origin_label: originLabel(savedResult(a.result_json), !!a.is_demo) })))
 })
 
 guarded.get('/responses', async (c) => {

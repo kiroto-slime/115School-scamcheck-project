@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { api, ApiError, formatTime, postJson, researchId, type AnalysisResult } from '../api'
 import { Alert, RiskBadge, Section, Spinner } from '../components/ui'
 import { addHistory } from '../history'
-import { aiAgreement, mainReasons, riskConclusion } from '../../shared/conclusion'
+import { finalRisk, mainReasons, riskConclusion } from '../../shared/conclusion'
 export { mainReasons } from '../../shared/conclusion'
 
 const MATCH_ZH = { exact: '相同內容', similar: '相似內容（不等於同一事件）' }
@@ -19,33 +19,26 @@ const HEADLINE: Record<string, [string, string]> = {
 }
 
 function ConclusionCard({ data }: { data: AnalysisResult }) {
-  const [headline, tone] = HEADLINE[data.risk_level] ?? HEADLINE['資訊不足']
+  // 綜合等級：規則、Gemini、網址名單、Cofacts 取最高
+  const final = finalRisk(data)
+  const [headline, tone] = HEADLINE[final.level] ?? HEADLINE['資訊不足']
   const reasons = mainReasons(data)
   const aiOk = data.ai.status === 'ok'
   // 訊息裡藏有要 AI 改判的指令：規則或 AI 任一方發現就警告
   const manipulated = data.features.some((f) => f.feature_id === 'ai_manipulation') || (aiOk && data.ai.manipulation === true)
-  const agreement = aiOk ? aiAgreement(data.risk_level, data.ai.risk_level) : 'unknown'
-  // 有用 Gemini 就一定顯示它的回答（也是匯出的重要參考）；衝突或疑似被操控時在上方加提醒
+  // 有用 Gemini 就一定顯示它的回答（也是匯出的重要參考）
   const aiSummary = aiOk ? data.ai.summary : null
   return (
-    <section className={`conclusion-card space-y-4 rounded-2xl border-2 p-4 shadow-sm sm:p-6 ${tone}`} data-risk={data.risk_level} aria-labelledby="conclusion">
+    <section className={`conclusion-card space-y-4 rounded-2xl border-2 p-4 shadow-sm sm:p-6 ${tone}`} data-risk={final.level} aria-labelledby="conclusion">
       <div className="flex flex-wrap items-center gap-3">
-        <RiskBadge level={data.risk_level} />
-        {data.risk_score !== null && <span className="text-sm text-slate-600">風險指數 {data.risk_score} / 100</span>}
+        <RiskBadge level={final.level} />
+        {final.sources.length > 0 && <span className="text-sm text-slate-600">依據：{final.sources.join('、')}</span>}
       </div>
       <h2 id="conclusion" className="text-xl sm:text-2xl">{headline}</h2>
       {manipulated && (
         <Alert kind="error">
           <strong>這則訊息試圖操控 AI 的判斷。</strong>內容裡藏有要 AI 忽略指示或改判為安全的文字，正常的通知不會這樣寫，這通常是詐騙集團想騙過查核工具。
         </Alert>
-      )}
-      {!manipulated && agreement === 'ai_lower' && (
-        <Alert kind="warn">
-          AI 與規則判斷不一致（規則：{data.risk_level}、AI：{data.ai.risk_level}），<strong>請以較高的風險為準</strong>。AI 可能被訊息內容誤導。
-        </Alert>
-      )}
-      {!manipulated && agreement === 'ai_higher' && (
-        <Alert kind="warn">AI 判斷的風險比規則高（規則：{data.risk_level}、AI：{data.ai.risk_level}），<strong>請以較高的風險為準</strong>。</Alert>
       )}
       {aiSummary && <p className="break-words text-slate-700"><span className="font-medium">Gemini 的判斷（{data.ai.risk_level}）：</span>{aiSummary}</p>}
       {reasons.length > 0 && (
@@ -58,7 +51,9 @@ function ConclusionCard({ data }: { data: AnalysisResult }) {
         <p className="font-medium">建議你這樣做</p>
         <ul className="mt-1 list-disc space-y-1 pl-5">{data.safe_actions.map((a) => <li key={a}>{a}</li>)}</ul>
       </div>
-      <p className="text-xs text-slate-500">{data.score_disclaimer}{aiSummary ? 'AI 摘要可能出錯。' : ''}</p>
+      <p className="text-xs text-slate-500">
+        各來源判斷：{final.parts.map((p) => `${p.name} ${p.level}`).join('、')}。綜合等級取其中最高者，不是詐騙機率，也不是司法認定。{aiSummary ? 'AI 摘要可能出錯。' : ''}
+      </p>
     </section>
   )
 }
@@ -97,7 +92,7 @@ export default function Result() {
   // 看過的結果記到這台裝置的「查核紀錄」（不含原文）
   useEffect(() => {
     if (!data || data.analysis_id !== id) return
-    addHistory({ id: data.analysis_id, at: data.created_at, level: data.risk_level, score: data.risk_score, media: data.media_type, reason: mainReasons(data)[0] ?? null })
+    addHistory({ id: data.analysis_id, at: data.created_at, level: finalRisk(data).level, score: data.risk_score, media: data.media_type, reason: mainReasons(data)[0] ?? null })
   }, [data, id])
 
   if (error) return <Alert kind="error">{error} <Link to="/check">重新查核</Link></Alert>
@@ -203,7 +198,7 @@ export default function Result() {
         <AiBlock ai={data.ai} />
       </Section>
 
-      <Section step={5} title="綜合風險指數">
+      <Section step={5} title="規則風險指數">
         <div className="flex flex-wrap items-end gap-4">
           <p className="text-4xl font-bold text-slate-900">{data.risk_score ?? '—'}<span className="text-base font-normal text-slate-500"> / 100</span></p>
           <RiskBadge level={data.risk_level} />
