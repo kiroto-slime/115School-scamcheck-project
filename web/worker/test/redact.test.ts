@@ -28,6 +28,26 @@ describe('redactPii', () => {
     expect(redactPii('1234567890123456')).toBe('[數字帳號]')
   })
 
+  it('姓名規則：前面有其他字也能遮，停用詞不遮', () => {
+    expect(redactPii('您好王小明先生')).toBe('您好[姓名]先生')
+    expect(redactPii('親愛的陳美玲小姐')).toBe('親愛的[姓名]小姐')
+    expect(redactPii('我是老師')).toBe('我是老師')
+    expect(redactPii('各位同學好')).toBe('各位同學好')
+  })
+
+  it('地址前後文字不被吃掉', () => {
+    const out = redactPii('請寄到台北市大安區復興南路一段100號3樓謝謝')
+    expect(out.startsWith('請寄到')).toBe(true)
+    expect(out.endsWith('謝謝')).toBe(true)
+    expect(out).toContain('[地址]')
+    expect(redactPii('復興南路很好走')).toBe('復興南路很好走')
+  })
+
+  it('電話邊界行為', () => {
+    expect(redactPii('0912345678')).toBe('[手機]')
+    expect(redactPii('0123456789')).toBe('[電話]')
+  })
+
   it('不誤遮一般詞', () => {
     for (const s of ['台北市政府', '王牌客服', '中華郵政', '民國113年', '請到超商繳費']) {
       expect(redactPii(s)).toBe(s)
