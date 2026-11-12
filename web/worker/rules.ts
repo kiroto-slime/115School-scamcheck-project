@@ -236,11 +236,4 @@ export function analyzeText(text: string, sourceSignals: SourceSignal[] = [], ur
   return { risk_level: level, risk_score: scoreOut, features, basis, safe_actions: actions, rule_version: RULE_VERSION, tags: features.map((f) => f.feature_id) }
 }
 
-/** 送往第三方前，先遮蔽常見個資（身分證、手機、Email、長數字帳號） */
-export function redactPii(text: string): string {
-  return text
-    .replace(/(?<![A-Za-z0-9])[A-Z][12]\d{8}(?!\d)/g, '[身分證]')
-    .replace(/(?<!\d)09\d{2}[- ]?\d{3}[- ]?\d{3}(?!\d)/g, '[手機]')
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]+/g, '[Email]')
-    .replace(/(?<!\d)\d{10,16}(?!\d)/g, '[數字帳號]')
-}
+export { redactPii } from './redact'
