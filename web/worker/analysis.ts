@@ -1,20 +1,41 @@
-/** 串接 Cofacts／網址安全檢查／Google 事實查核 → 規則分析 → Gemini → 只儲存衍生結果（不存原文、不存完整網址） */
+/** 串接 Cofacts／網址安全檢查／Google 事實查核 → 規則分析 → Gemini → 儲存衍生結果；未同意者不存內容；同意者只存遮蔽後內容 */
 import { cofactsLookup, disabledLookup, LICENSE, skippedLookup } from './cofacts'
 import { factCheckLookup, FactCheckResult } from './factcheck'
 import { analyzeWithFallback } from './aimodels'
 import { AIMedia, disabledResult, notRequestedResult } from './gemini'
+import { stripUrlQueries } from './redact'
 import { analyzeText, redactPii } from './rules'
 import { AppSettings, aiMode } from './settings'
 import { audit, bool, HttpError, newId, nowIso, parseJson } from './util'
 import { ExternalUrlResult, extractUrls, safeBrowsingLookup, tw165Lookup, virusTotalLookup, vtMaliciousCount } from './urlcheck'
 
-export async function hasActiveConsent(db: D1Database, researchId: string | null | undefined, purpose: string): Promise<boolean> {
+export async function hasActiveConsent(db: D1Database, researchId: string | null | undefined, purpose: string, version?: string): Promise<boolean> {
   if (!researchId) return false
   const row = await db
-    .prepare('SELECT consent_status FROM consent_records WHERE research_id = ? AND purpose = ? ORDER BY consent_time DESC, rowid DESC LIMIT 1')
+    .prepare('SELECT consent_status, consent_version FROM consent_records WHERE research_id = ? AND purpose = ? ORDER BY consent_time DESC, rowid DESC LIMIT 1')
     .bind(researchId, purpose)
-    .first<{ consent_status: string }>()
-  return row?.consent_status === 'granted'
+    .first<{ consent_status: string; consent_version: string }>()
+  if (row?.consent_status !== 'granted') return false
+  // 有指定版本時，最新一筆同意必須是該版本（舊版同意不涵蓋保存內容）
+  return version === undefined || row.consent_version === version
+}
+
+const MAX_SAVED_CONTENT = 4000
+
+/** 要保存的內容：遮蔽個資、去除網址參數後截斷；圖片／影片另附 AI 看到／聽到的內容 */
+export function savedContent(text: string, mediaType: 'text' | 'image' | 'video', mediaDescription: string | null): string {
+  const clean = (t: string) => redactPii(stripUrlQueries(t)).trim()
+  let out: string
+  if (mediaType === 'text') out = clean(text)
+  else {
+    const parts: string[] = []
+    const user = clean(text)
+    if (user) parts.push(`【使用者補充文字】\n${user}`)
+    const desc = mediaDescription ? clean(mediaDescription) : ''
+    if (desc) parts.push(`【AI 看到／聽到的內容】\n${desc}`)
+    out = parts.join('\n')
+  }
+  return out.slice(0, MAX_SAVED_CONTENT)
 }
 
 export interface AnalyzeInput {
@@ -36,6 +57,8 @@ export interface AnalyzeInput {
 export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): Promise<Record<string, unknown>> {
   const db = env.DB
   const consentResearch = s.research_collection_enabled && (await hasActiveConsent(db, inp.researchId, 'research'))
+  // 保存內容需要「新版」研究同意；舊版同意者只照舊保存衍生結果
+  const consentContent = consentResearch && (await hasActiveConsent(db, inp.researchId, 'research', s.consent_version))
   const consentSecondary = consentResearch && (await hasActiveConsent(db, inp.researchId, 'secondary_use'))
 
   const redacted = redactPii(inp.text)
@@ -79,6 +102,8 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
       ? notRequestedResult()
       : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel)
 
+  const content = consentContent ? savedContent(inp.text, inp.mediaType, ai.status === 'ok' ? ai.media_description ?? null : null) : null
+  const contentUrls = consentContent ? JSON.stringify(urls.map((u) => u.url).slice(0, 10)) : null
   const now = nowIso()
   const result = {
     record_origin: 'user_submission',
@@ -97,14 +122,15 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
   const status = anyError ? 'completed_with_source_error' : 'completed'
   const stmts = [
     db.prepare(`INSERT INTO analysis_records (analysis_id, research_id_nullable, created_at, media_type, source_count, risk_score_nullable, risk_level,
-      risk_tags_json, analysis_status, rule_version, external_ai_used, consent_research, consent_secondary_use, is_demo, result_json, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+      risk_tags_json, analysis_status, rule_version, external_ai_used, consent_research, consent_secondary_use, is_demo, result_json, expires_at, content_text, content_urls_json, content_edited)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).bind(
       analysisId, consentResearch ? inp.researchId : null, now, inp.mediaType, lookup.matches.length, risk.risk_score, risk.risk_level,
       JSON.stringify(risk.tags), status, risk.rule_version, bool(ai.external && ai.status === 'ok'), bool(consentResearch), bool(consentSecondary),
       // 一般查核獨立於前後測研究模式；只代表使用者送出的查核，不代表內容已證實。
       0, JSON.stringify(result),
       // 未同意研究者：只暫存供當次查看，到期自動刪除
       consentResearch ? null : nowIso(s.temp_retention_hours * 3600_000),
+      content, contentUrls,
     ),
   ]
   const src = (provider: string, status: string, m: { match_type: string; title?: string | null; url?: string | null; reply_type?: string | null }, license: string | null) =>
@@ -141,6 +167,9 @@ export interface AnalysisRow {
   consent_research: number
   result_json: string
   expires_at: string | null
+  content_text: string | null
+  content_urls_json: string | null
+  content_edited: number
 }
 
 export function serialize(rec: AnalysisRow): Record<string, unknown> {

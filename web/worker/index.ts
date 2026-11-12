@@ -46,6 +46,8 @@ app.get('/health', async (c) => {
       ai_models: models.filter((m) => !m.unavailable),
       research_mode: s.research_mode,
       research_collection_enabled: s.research_collection_enabled,
+      consent_version: s.consent_version,
+      content_retention_until: s.content_retention_until,
       admin_configured: Boolean(c.env.ADMIN_PASSWORD),
     },
     limits: { max_text_chars: LIMITS.maxTextChars, max_image_mb: LIMITS.maxImageMb, max_video_mb: LIMITS.maxVideoMb, max_video_seconds: LIMITS.maxVideoSeconds },

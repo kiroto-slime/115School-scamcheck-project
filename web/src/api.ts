@@ -46,6 +46,8 @@ export interface Health {
     quotas?: { cofacts: QuotaState; google: QuotaState; virustotal: QuotaState }
     research_mode: 'simulation' | 'formal'
     research_collection_enabled: boolean
+    consent_version: string
+    content_retention_until: string
     admin_configured: boolean
   }
   limits: { max_text_chars: number; max_image_mb: number; max_video_mb: number; max_video_seconds: number }

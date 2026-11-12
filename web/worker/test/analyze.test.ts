@@ -2,6 +2,8 @@ import { env } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cofactsLookup, similarity } from '../cofacts'
 import { extractText, Gemini, signMediaRef, verifyMediaRef } from '../gemini'
+import { savedContent } from '../analysis'
+import { DEFAULT_SETTINGS } from '../settings'
 import { call, count, SCAM } from './helpers'
 
 const GEMINI = { GEMINI_API_KEY: 'test-gemini-key' }
@@ -38,6 +40,10 @@ describe('文字查核', () => {
     expect(days).toBeGreaterThan(29.9) // 保存 30 天
     expect(days).toBeLessThan(30.1)
     expect(row!.consent_research).toBe(0)
+    const saved = await env.DB.prepare('SELECT content_text, content_urls_json, content_edited FROM analysis_records WHERE analysis_id = ?').bind(r.json.analysis_id).first<{ content_text: string | null; content_urls_json: string | null; content_edited: number }>()
+    expect(saved!.content_text).toBeNull() // 未同意：不保存內容
+    expect(saved!.content_urls_json).toBeNull()
+    expect(saved!.content_edited).toBe(0)
   })
 
   it('超過字數上限被拒絕', async () => {
@@ -223,5 +229,66 @@ describe('頻率限制', () => {
     for (let i = 0; i < 25; i++) codes.push((await call('/api/analyze/text', { body: { text: '測試訊息內容一二三四五六' }, ip: '203.0.113.50' })).status)
     expect(codes).toContain(429)
     expect(codes[0]).toBe(200)
+  })
+})
+
+describe('保存內容', () => {
+  const grant = async () => {
+    const c = await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })
+    return c.json.research_id as string
+  }
+  const contentOf = (id: string) =>
+    env.DB.prepare('SELECT content_text, content_urls_json FROM analysis_records WHERE analysis_id = ?').bind(id).first<{ content_text: string | null; content_urls_json: string | null }>()
+
+  it('同意研究：保存遮蔽後內容與去參數網址', async () => {
+    const rid = await grant()
+    const r = await call('/api/analyze/text', { body: { text: SCAM + ' 聯絡 0912-345-678', research_id: rid } })
+    expect(r.status).toBe(200)
+    const row = await contentOf(r.json.analysis_id)
+    expect(row!.content_text).toContain('包裹地址錯誤')
+    expect(row!.content_text).toContain('[手機]')
+    expect(row!.content_text).not.toContain('0912')
+    expect(JSON.parse(row!.content_urls_json!)).toEqual(['https://bit.ly/abc'])
+  })
+
+  it('公開 API 不洩漏保存的內容', async () => {
+    const rid = await grant()
+    const r = await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })
+    for (const body of [r.json, (await call(`/api/analysis/${r.json.analysis_id}`)).json])
+      for (const k of ['content_text', 'content_urls_json', 'content_edited']) expect(body).not.toHaveProperty(k)
+  })
+
+  it('舊版同意：不保存內容', async () => {
+    const rid = 'RLEGACY000001'
+    await env.DB.prepare('INSERT INTO consent_records (consent_id, research_id, purpose, consent_version, consent_status, consent_time, is_demo) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind('c'.repeat(32), rid, 'research', '2026.10-v0.2', 'granted', new Date().toISOString(), 0).run()
+    const r = await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })
+    expect(r.status).toBe(200)
+    expect((await contentOf(r.json.analysis_id))!.content_text).toBeNull()
+  })
+
+  it('刪除我的研究資料會一併刪除內容', async () => {
+    const rid = await grant()
+    await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })
+    expect(await count('analysis_records', `content_text IS NOT NULL AND research_id_nullable = '${rid}'`)).toBe(1)
+    expect((await call('/api/privacy/delete', { body: { research_id: rid } })).status).toBe(200)
+    expect(await count('analysis_records', `content_text IS NOT NULL AND research_id_nullable = '${rid}'`)).toBe(0)
+  })
+
+  it('health 提供同意版本與保存期限', async () => {
+    const h = await call('/api/health')
+    expect(h.json.modes.consent_version).toBe('2026.11-v0.3')
+    expect(h.json.modes.content_retention_until).toBe('2027-12-31')
+  })
+
+  it('預設研究資料保存 730 天', () => {
+    expect(DEFAULT_SETTINGS.research_retention_days).toBe(730)
+  })
+
+  it('圖片／影片內容格式：補充文字加 AI 描述', () => {
+    expect(savedContent('我的補充 0912345678', 'image', '截圖寫著匯款')).toBe('【使用者補充文字】\n我的補充 [手機]\n【AI 看到／聽到的內容】\n截圖寫著匯款')
+    expect(savedContent('', 'video', '有人要求轉帳')).toBe('【AI 看到／聽到的內容】\n有人要求轉帳')
+    expect(savedContent('https://a.com/x?token=1 hi', 'text', null)).toBe('https://a.com/x hi')
+    expect(savedContent('a'.repeat(5000), 'text', null).length).toBe(4000)
   })
 })

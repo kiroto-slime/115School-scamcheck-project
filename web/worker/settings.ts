@@ -17,6 +17,8 @@ export interface AppSettings {
   consent_version: string
   temp_retention_hours: number
   research_retention_days: number
+  /** 同意研究者的訊息內容預計保存到這一天（YYYY-MM-DD），顯示在研究同意說明 */
+  content_retention_until: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -29,10 +31,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cofacts_daily_limit: 500,
   google_daily_limit: 1000,
   virustotal_daily_limit: 450,
-  consent_version: '2026.10-v0.2',
+  consent_version: '2026.11-v0.3',
   // 未同意研究的分析結果（不含原文）保存 30 天，讓使用者能從「查核紀錄」回來看
   temp_retention_hours: 720,
-  research_retention_days: 365,
+  research_retention_days: 730,
+  content_retention_until: '2027-12-31',
 }
 
 /** 上傳限制（開發預設值，非外部服務官方限制） */
