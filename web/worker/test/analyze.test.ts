@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cofactsLookup, similarity } from '../cofacts'
 import { extractText, Gemini, signMediaRef, verifyMediaRef } from '../gemini'
 import { savedContent } from '../analysis'
-import { DEFAULT_SETTINGS } from '../settings'
+import { DEFAULT_SETTINGS, saveSettings } from '../settings'
 import { call, count, SCAM } from './helpers'
 
 const GEMINI = { GEMINI_API_KEY: 'test-gemini-key' }
@@ -249,6 +249,30 @@ describe('保存內容', () => {
     expect(row!.content_text).toContain('[手機]')
     expect(row!.content_text).not.toContain('0912')
     expect(JSON.parse(row!.content_urls_json!)).toEqual(['https://bit.ly/abc'])
+  })
+
+  it('可疑網址路徑中的手機號碼保存前先遮蔽', async () => {
+    const rid = await grant()
+    const r = await call('/api/analyze/text', { body: { text: '請點 https://a.cc/u/0912345678?x=1 領取', research_id: rid } })
+    expect(r.status).toBe(200)
+    const row = await contentOf(r.json.analysis_id)
+    expect(JSON.parse(row!.content_urls_json!)).toEqual(['https://a.cc/u/[手機]'])
+    expect(row!.content_urls_json).not.toContain('0912345678')
+  })
+
+  it('超過「訊息內容保存到」日期後，新查核不保存內容', async () => {
+    const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10)
+    await saveSettings(env.DB, { content_retention_until: yesterday })
+    try {
+      const rid = await grant()
+      const r = await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })
+      expect(r.status).toBe(200)
+      const row = await contentOf(r.json.analysis_id)
+      expect(row!.content_text).toBeNull()
+      expect(row!.content_urls_json).toBeNull()
+    } finally {
+      await saveSettings(env.DB, { content_retention_until: DEFAULT_SETTINGS.content_retention_until })
+    }
   })
 
   it('公開 API 不洩漏保存的內容', async () => {

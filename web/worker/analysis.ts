@@ -57,8 +57,9 @@ export interface AnalyzeInput {
 export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): Promise<Record<string, unknown>> {
   const db = env.DB
   const consentResearch = s.research_collection_enabled && (await hasActiveConsent(db, inp.researchId, 'research'))
-  // 保存內容需要「新版」研究同意；舊版同意者只照舊保存衍生結果
-  const consentContent = consentResearch && (await hasActiveConsent(db, inp.researchId, 'research', s.consent_version))
+  // 保存內容需要「新版」研究同意；舊版同意者只照舊保存衍生結果。超過「訊息內容保存到」日期後不再寫入新內容
+  const withinRetention = nowIso().slice(0, 10) <= s.content_retention_until
+  const consentContent = consentResearch && withinRetention && (await hasActiveConsent(db, inp.researchId, 'research', s.consent_version))
   const consentSecondary = consentResearch && (await hasActiveConsent(db, inp.researchId, 'secondary_use'))
 
   const redacted = redactPii(inp.text)
@@ -103,7 +104,8 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
       : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel)
 
   const content = consentContent ? savedContent(inp.text, inp.mediaType, ai.status === 'ok' ? ai.media_description ?? null : null) : null
-  const contentUrls = consentContent ? JSON.stringify(urls.map((u) => u.url).slice(0, 10)) : null
+  // 網址路徑也可能夾帶手機、證號，保存前同樣遮蔽
+  const contentUrls = consentContent ? JSON.stringify(urls.map((u) => redactPii(u.url)).slice(0, 10)) : null
   const now = nowIso()
   const result = {
     record_origin: 'user_submission',

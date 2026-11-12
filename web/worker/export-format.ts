@@ -108,7 +108,8 @@ export function readableAnalysis(a: ExportAnalysis) {
   ]
   // 訊息內容：已是遮蔽後文字，這裡再遮一次個資；刻意不經 exportText，讓管理者看得到網址
   const content = typeof a.content_text === 'string' && a.content_text ? redactPii(a.content_text).replace(/\0/g, '') : '未保存內容（舊紀錄或未同意保存）'
-  const urls = stringsOf(parseJson<unknown>(a.content_urls_json, [])).map((s) => s.replace(/\0/g, '')).join('\n')
+  // 可疑網址：路徑可能夾帶個資，匯出時再遮一次（縱深防禦）
+  const urls = stringsOf(parseJson<unknown>(a.content_urls_json, [])).map((s) => redactPii(s).replace(/\0/g, '')).join('\n')
   const gemini = aiOk
     ? `${exportText(ai.risk_level) || '未提供等級'}：${summary || '未保存摘要'}`
     : zh(ai.status, STATUS_ZH, '未使用')
