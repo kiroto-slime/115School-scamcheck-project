@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, ApiError, consentVersion, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
+import { api, ApiError, currentAiModel, postJson, researchId, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
 import { NaughtyButton } from '../components/NaughtyButton'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
@@ -186,16 +186,11 @@ export default function Check() {
     // 管理頁關閉研究蒐集時不建立同意紀錄，避免預設勾選讓查核失敗
     if (!consentB || health?.modes.research_collection_enabled === false) return undefined
     let rid = researchId.get()
-    const currentVersion = health?.modes.consent_version
-    // 沒有編號，或舊版同意：以目前版本重新記錄（有編號就沿用）
-    if (!rid || (currentVersion && consentVersion.get() !== currentVersion)) {
-      const r = await postJson<{ research_id: string; consent_version?: string }>('/api/consent',
-        rid ? { research_id: rid, purpose: 'research', status: 'granted' } : { purpose: 'research', status: 'granted' })
-      rid = r.research_id
-      researchId.set(rid)
-      const v = r.consent_version ?? currentVersion
-      if (v) consentVersion.set(v)
-    }
+    // 每次送出都以目前版本記錄同意（有編號就沿用），確保伺服器的同意版本與畫面說明一致
+    const r = await postJson<{ research_id: string }>('/api/consent',
+      rid ? { research_id: rid, purpose: 'research', status: 'granted' } : { purpose: 'research', status: 'granted' })
+    rid = r.research_id
+    researchId.set(rid)
     if (consentC) await postJson('/api/consent', { research_id: rid, purpose: 'secondary_use', status: 'granted' })
     return rid
   }
@@ -371,7 +366,7 @@ export default function Check() {
             onChange={(e) => { setConsentB(e.target.checked); if (!e.target.checked) setConsentC(false) }} />
           <span className="min-w-0 text-sm">
             <span className="block font-medium">協助校內研究（選填）</span>
-            <span className="mt-1 block text-xs text-slate-500">同意後會保存這次已遮蔽個資的訊息內容與可疑網址及分析結果，供校內防詐研究，保存至 {retentionText} 後刪除。取消勾選則不保存內容。</span>
+            <span className="mt-1 block text-xs text-slate-500">同意後會保存這次已遮蔽個資的訊息內容與可疑網址及分析結果，供校內防詐研究，保存至 {retentionText} 後刪除。取消勾選則不保存內容。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。</span>
           </span>
         </label>
         <label className="consent-row">

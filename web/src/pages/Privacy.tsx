@@ -14,7 +14,7 @@ export default function Privacy() {
       const r = kind === 'withdraw'
         ? await postJson<{ message: string }>('/api/consent', { research_id: rid.trim(), purpose: 'research', status: 'withdrawn' })
         : await postJson<{ message: string }>('/api/privacy/delete', { research_id: rid.trim() })
-      if (kind === 'delete' && researchId.get() === rid.trim()) researchId.clear()
+      if ((kind === 'delete' || kind === 'withdraw') && researchId.get() === rid.trim()) researchId.clear()
       setMsg({ kind: 'success', text: r.message })
     } catch (e) {
       setMsg({ kind: 'error', text: e instanceof ApiError ? e.message : '操作失敗，請稍後再試。' })
@@ -28,10 +28,10 @@ export default function Privacy() {
       <h1>隱私與研究說明</h1>
       <Section title="我們蒐集什麼、為什麼">
         <ul className="list-disc space-y-1 pl-5">
-          <li><strong>必要的暫時處理：</strong>為完成你這次的查核，伺服器會暫時處理你輸入的文字或上傳的檔案。原始圖片、影片處理完即刪除；未同意研究者，不把訊息內容寫入資料庫。同意研究者，只保存已遮蔽姓名、地址、電話、證號、帳號、車牌後的文字與去參數網址，保存到專題結束（由後台設定日期）。</li>
+          <li><strong>必要的暫時處理：</strong>為完成你這次的查核，伺服器會暫時處理你輸入的文字或上傳的檔案。原始圖片、影片處理完即刪除；未同意研究者，不把訊息內容寫入資料庫。同意研究者，只保存已遮蔽姓名、地址、電話、Email、證號、帳號、車牌後的文字與去參數網址，保存到專題結束（由後台設定日期）。圖片、影片檔不保存，只保存你補充的文字與 AI 對內容的文字描述（同樣經遮蔽）。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。</li>
           <li><strong>自願的校內研究：</strong>只在查核頁「協助校內研究」為勾選狀態時（預設勾選，可取消），保存已遮蔽個資的訊息內容與去參數網址、分析結果（風險特徵、等級、媒體類型）與研究測驗的作答（判斷、理由選項、作答時間）。</li>
           <li><strong>自願的衍生用途：</strong>只在你另外同意後，經人工審查的「彙總統計」才可能用於教育產品與商業可行性研究。不會販售或公開任何個別投稿。</li>
-          <li>我們<strong>不蒐集</strong>姓名、學號、電話、身分證等身分資訊，使用隨機產生的研究編號。</li>
+          <li>我們<strong>不主動要求</strong>你提供姓名、學號、電話、身分證等身分資訊，使用隨機產生的研究編號；內容中若含有這類資訊，會盡力自動遮蔽。</li>
         </ul>
       </Section>
       <Section title="資料傳輸與第三方">
