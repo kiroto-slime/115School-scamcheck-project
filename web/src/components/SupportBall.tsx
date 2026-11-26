@@ -10,7 +10,9 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
   const ball = useRef<HTMLButtonElement>(null)
   const [bounds, setBounds] = useState<{ left: number; top: number; right: number; bottom: number; size: number; toolsTop: number; dock: Point }>()
   const [point, setPoint] = useState<Point | null>(null)
-  const [open, setOpen] = useState(false)
+  const [phase, setPhase] = useState<'closed' | 'open' | 'closing'>('closed')
+  const panel = useRef<HTMLDivElement>(null)
+  const [session, setSession] = useState(0)
   const drag = useRef<{ id: number; start: Point; origin: Point; moved: boolean } | null>(null)
   const skipClick = useRef(false)
 
@@ -48,6 +50,19 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
     }
   }, [])
 
+  useLayoutEffect(() => {
+    const element = panel.current
+    if (!element) return
+    element.inert = phase === 'closing'
+    if (phase !== 'closing') return
+    let current = true
+    const transitions = element.getAnimations?.() ?? []
+    Promise.allSettled(transitions.map(animation => animation.finished)).then(() => {
+      if (current) setPhase('closed')
+    })
+    return () => { current = false }
+  }, [phase])
+
   if (!bounds) return null
   const { left, top, right, bottom, size, toolsTop, dock } = bounds
   const x = clamp(point?.x ?? dock.x, left, dock.x)
@@ -64,7 +79,12 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
   const useAbove = aboveEnd - top >= panelBottom - y - size - gap
   const height = Math.max(0, Math.min(388, toSide ? panelBottom - top : useAbove ? aboveEnd - top : panelBottom - y - size - gap))
   const panelY = toSide ? clamp(y - height / 2, top, panelBottom - height) : useAbove ? aboveEnd - height : y + size + gap
-  const close = () => { setOpen(false); ball.current?.focus({ preventScroll: true }) }
+  const close = () => { ball.current?.focus({ preventScroll: true }); setPhase('closing') }
+  const toggle = () => {
+    if (phase === 'open') { close(); return }
+    setSession(previous => previous + 1)
+    setPhase('open')
+  }
   const startDrag = (event: PointerEvent<HTMLButtonElement>) => {
     skipClick.current = false
     if (event.button !== 0 || event.pointerType === 'touch') return
@@ -83,16 +103,20 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
   }
   return <div className={'support-layer' + (mobileEnabled ? ' mobile-enabled' : '')}>
     <button ref={ball} className="support-ball" style={{ left: x, top: y, width: size, height: size }}
-      aria-label="客服問答" title="客服問答" aria-haspopup="dialog" aria-expanded={open}
+      aria-label="客服問答" title="客服問答" aria-haspopup="dialog" aria-expanded={phase === 'open'}
       onPointerDown={startDrag} onPointerMove={move} onLostPointerCapture={() => { drag.current = null }}
-      onClick={event => { if (event.detail === 0 || !skipClick.current) setOpen(!open); skipClick.current = false }}
-      onKeyDown={event => { if (event.key === 'Escape' && open) close() }}>
-      <svg width="50%" height="50%" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M20.5 11.5a8.5 8.5 0 0 1-8.5 8.5 10 10 0 0 1-3.4-.6L4 21l1-4a8.5 8.5 0 1 1 15.5-5.5Z M8.5 10h7M8.5 13.5H13" />
-      </svg>
+      onClick={event => { if (event.detail === 0 || !skipClick.current) toggle(); skipClick.current = false }}
+      onKeyDown={event => { if (event.key === 'Escape' && phase === 'open') close() }}>
+      <span className="support-glass" aria-hidden="true">
+        <svg width="50%" height="50%" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20.5 11.5a8.5 8.5 0 0 1-8.5 8.5 10 10 0 0 1-3.4-.6L4 21l1-4a8.5 8.5 0 1 1 15.5-5.5Z M8.5 10h7M8.5 13.5H13" />
+        </svg>
+      </span>
     </button>
-    {open && <div className="support-window" style={{ left: panelX, top: panelY, width, height }}>
-      <ChatPanel scope="support" onClose={close} />
+    {phase !== 'closed' && <div ref={panel} className="support-window" data-phase={phase}
+      style={{ left: panelX, top: panelY, width, height,
+        transformOrigin: `${x + size / 2 - panelX}px ${y + size / 2 - panelY}px` }}>
+      <ChatPanel key={session} scope="support" onClose={close} />
     </div>}
   </div>
 }

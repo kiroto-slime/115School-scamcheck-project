@@ -51,20 +51,93 @@
 .chat-entry button:disabled { opacity: .55; cursor: default; }
 .support-ball, .support-window { position: fixed; z-index: 24; }
 .support-ball {
-  display: grid;
-  place-items: center;
   touch-action: manipulation;
   user-select: none;
   cursor: grab;
-  border: 1px solid var(--control-border);
+  background: transparent;
+  border: none;
   border-radius: 50%;
-  color: var(--color-teal-800);
-  background: linear-gradient(140deg, var(--color-teal-50), transparent), var(--surface);
-  backdrop-filter: blur(14px);
-  box-shadow: var(--panel-shadow);
 }
 .support-ball:active { cursor: grabbing; }
-.support-window { z-index: 25; }
+@property --support-tint-start {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: rgb(87 213 208 / 34%);
+}
+@property --support-tint-end {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: rgb(190 153 241 / 32%);
+}
+.support-glass {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgb(142 167 178 / 74%);
+  border-radius: 50%;
+  color: #203e51;
+  background: linear-gradient(135deg, var(--support-tint-start), var(--support-tint-end));
+  animation: support-tints 12s linear infinite;
+  -webkit-backdrop-filter: blur(12px) saturate(1.18);
+  backdrop-filter: blur(12px) saturate(1.18);
+  box-shadow: inset 1px 2px 3px rgb(255 255 255 / 68%), inset -2px -2px 4px rgb(148 169 196 / 32%), 0 3px 10px rgb(31 55 67 / 16%);
+  transition: transform 170ms cubic-bezier(.2,.8,.3,1.25);
+}
+.support-glass::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background: linear-gradient(135deg, transparent 33%, rgb(177 237 245 / 22%) 44%, rgb(251 228 255 / 45%) 50%, transparent 64%);
+  animation: support-sheen 8s ease-in-out infinite;
+}
+.support-ball svg {
+  position: relative;
+  filter: drop-shadow(0 0 1px white) drop-shadow(0 0 1px white);
+}
+@keyframes support-tints {
+  0%, 100% { --support-tint-start: rgb(87 213 208 / 34%); --support-tint-end: rgb(190 153 241 / 32%); }
+  33% { --support-tint-start: rgb(137 175 246 / 34%); --support-tint-end: rgb(250 164 184 / 32%); }
+  67% { --support-tint-start: rgb(202 159 235 / 34%); --support-tint-end: rgb(245 200 139 / 32%); }
+}
+@keyframes support-sheen {
+  0%, 73% { opacity: 0; transform: translate(-65%, -65%); }
+  84% { opacity: .8; }
+  98%, 100% { opacity: 0; transform: translate(65%, 65%); }
+}
+@media (hover: hover) and (pointer: fine) {
+  .support-ball:hover .support-glass { transform: translateY(-2px); }
+}
+.support-ball:active .support-glass { transform: scale(.94); }
+.support-window {
+  z-index: 25;
+  opacity: 1;
+  transform: scale(1);
+  transition: transform 250ms cubic-bezier(.2,.85,.27,1.07), opacity 150ms ease-out;
+}
+@starting-style {
+  .support-window { opacity: 0; transform: scale(.1); }
+}
+.support-window[data-phase="closing"] {
+  opacity: 0;
+  transform: scale(.1);
+  pointer-events: none;
+  transition: transform 180ms cubic-bezier(.5,.05,.8,.55), opacity 180ms ease-in;
+}
+@media (prefers-reduced-motion: reduce) {
+  .support-glass { animation: none; }
+  .support-glass::before { animation: none; opacity: 0; }
+  .support-ball:hover .support-glass, .support-ball:active .support-glass { transform: none; }
+  .support-window, .support-window[data-phase="closing"] {
+    transform: none;
+    transition: opacity 90ms linear !important;
+  }
+  @starting-style { .support-window { transform: none; } }
+}
 .chat-switch { display: none; }
 @media (max-width: 767px), (pointer: coarse) {
   .support-layer:not(.mobile-enabled) { display: none; }
