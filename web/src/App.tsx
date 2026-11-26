@@ -4,6 +4,8 @@ import { ModeBanner } from './components/ui'
 import { FloatingTools } from './components/FloatingTools'
 import { AccentMenu } from './components/AccentMenu'
 import { Navigation } from './components/Navigation'
+import { ChatPanel } from './components/ChatPanel'
+import { SupportBall } from './components/SupportBall'
 import Home from './pages/Home'
 import Check from './pages/Check'
 import Result from './pages/Result'
@@ -41,6 +43,13 @@ function ThemeButton() {
 
 export default function App() {
   const [open, setOpen] = useState(false)
+  const [ballEnabled, setBallEnabled] = useState(() => {
+    try { return localStorage.getItem('mobileSupportBall') === 'on' } catch { return false }
+  })
+  const toggleBall = () => {
+    setBallEnabled(!ballEnabled)
+    try { localStorage.setItem('mobileSupportBall', ballEnabled ? 'off' : 'on') } catch { /* 此次使用仍可切換。 */ }
+  }
   const [pinnedChoice, setPinnedChoice] = useState<boolean | null>(null)
   const [landscape, setLandscape] = useState(() => window.matchMedia('(orientation: landscape) and (max-width: 1180px) and (max-height: 600px)').matches)
   const [peek, setPeek] = useState(false)
@@ -136,7 +145,7 @@ export default function App() {
           </div>
         </div>
         {/* 手機：漢堡選單展開 */}
-        <Navigation mobile open={pinned && open} />
+        <Navigation mobile open={pinned && open} ballEnabled={ballEnabled} onToggleBall={toggleBall} />
       </header>
 
       <div className="flex flex-1">
@@ -160,7 +169,7 @@ export default function App() {
           onPointerEnter={cancelClose}
           onPointerLeave={(event) => { if (!pinned && event.pointerType === 'mouse') scheduleClose() }}
           onBlur={(event) => { if (!pinned && !event.currentTarget.contains(event.relatedTarget as Node | null)) closePeek() }}>
-          <Navigation />
+          <Navigation ballEnabled={ballEnabled} onToggleBall={toggleBall} />
         </aside>
 
         <div className="content-column flex min-w-0 flex-1 flex-col">
@@ -175,6 +184,7 @@ export default function App() {
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/products" element={<Products />} />
               <Route path="/game" element={<Game />} />
+              <Route path="/chat" element={<ChatPanel scope="prevention" />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="*" element={<div className="card">找不到頁面。<Link to="/">回首頁</Link></div>} />
             </Routes>
@@ -189,6 +199,7 @@ export default function App() {
         </div>
       </div>
       <FloatingTools pathname={loc.pathname} />
+      <SupportBall key={loc.pathname} mobileEnabled={ballEnabled} />
     </div>
   )
 }

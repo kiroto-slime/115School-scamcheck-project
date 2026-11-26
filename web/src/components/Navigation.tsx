@@ -11,12 +11,15 @@ const GROUPS = [
     ['/products', '產品與需求', 'M21 11a8 8 0 0 1-8 8H4l-3 3 2-7a8 8 0 1 1 18-4M7 9h10M7 13h6'],
   ] },
   { title: '關於網站', links: [
+    ['/chat', '對話', 'M21 11a9 9 0 0 1-9 9 10 10 0 0 1-4-.8L3 21l1.3-4.5A9 9 0 1 1 21 11zM8 9h8M8 13h5'],
     ['/privacy', '隱私與說明', 'M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5zM12 14v3'],
     ['/game', '小遊戲', 'M7 7h10a5 5 0 0 1 5 5v5a3 3 0 0 1-5 2l-2-2H9l-2 2a3 3 0 0 1-5-2v-5a5 5 0 0 1 5-5zM7 10v6M4 13h6M16 11h.01M19 14h.01'],
   ] },
 ] as const
 
-export function Navigation({ mobile = false, open = false }: { mobile?: boolean; open?: boolean }) {
+export function Navigation({ mobile = false, open = false, ballEnabled, onToggleBall }: {
+  mobile?: boolean; open?: boolean; ballEnabled: boolean; onToggleBall: () => void
+}) {
   const nav = useRef<HTMLElement>(null)
   const reset = () => nav.current?.querySelectorAll<HTMLElement>('.nav-item').forEach((item) => item.style.removeProperty('--nav-shift'))
   const followPointer = (event: PointerEvent<HTMLElement>) => {
@@ -42,6 +45,9 @@ export function Navigation({ mobile = false, open = false }: { mobile?: boolean;
           ))}
         </div>
       ))}
+      <button className="chat-switch" role="switch" aria-checked={ballEnabled} onClick={onToggleBall}>
+        顯示客服小球<span aria-hidden="true" />
+      </button>
     </nav>
   )
 }

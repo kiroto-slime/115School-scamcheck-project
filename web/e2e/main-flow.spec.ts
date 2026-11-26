@@ -301,7 +301,7 @@ test('375px 與桌面：深淺色及大字下各分頁均可閱讀', async ({ pa
     for (const dark of [false, true]) {
       const currentlyDark = await page.locator('html').evaluate((el) => el.classList.contains('dark'))
       if (currentlyDark !== dark) await page.getByRole('button', { name: /切換成.*色模式/ }).click()
-      for (const path of ['/', '/check', '/history', '/research', '/products', '/privacy', '/admin']) {
+      for (const path of ['/', '/check', '/history', '/research', '/products', '/privacy', '/chat', '/admin']) {
         await page.goto(path)
         await expect(page.locator('h1')).toBeVisible()
         if (path === '/check') {
@@ -381,4 +381,56 @@ test('還沒輸入時「開始查核」會躲開，不跑出畫面；輸入後�
   await noHorizontalOverflow(page)
   await page.getByLabel(/貼上可疑訊息/).fill('請立即匯款')
   await expect(btn).not.toHaveAttribute('data-moved', 'true')
+})
+test('站內問答依入口回覆，手機可切換小球，問題只在當頁顯示', async ({ page, isMobile }) => {
+  await page.goto('/chat')
+  await expect(page.getByRole('heading', { name: '對話', exact: true })).toBeVisible()
+  const orb = page.getByRole('button', { name: '客服問答', exact: true })
+  if (!isMobile) {
+    const initial = (await orb.boundingBox())!
+    await page.mouse.move(initial.x + 24, initial.y + 24)
+    await page.mouse.down()
+    await page.mouse.move(4, 4, { steps: 8 })
+    await page.mouse.up()
+    const dragged = (await orb.boundingBox())!
+    const sidebar = (await page.locator('#sidebar-panel').boundingBox())!
+    const header = (await page.locator('.topbar').boundingBox())!
+    expect(dragged.x).toBeLessThan(initial.x)
+    expect(dragged.x).toBeGreaterThanOrEqual(sidebar.x + sidebar.width)
+    expect(dragged.y).toBeGreaterThanOrEqual(header.y + header.height)
+    await expect(page.getByRole('dialog', { name: '客服問答' })).toHaveCount(0)
+  }
+  if (isMobile) {
+    await expect(orb).toBeHidden()
+    const menu = page.getByRole('button', { name: '開啟選單' })
+    if (await menu.isVisible()) await menu.click()
+    await page.getByRole('switch', { name: '顯示客服小球' }).click()
+    const close = page.getByRole('button', { name: '關閉選單' })
+    if (await close.isVisible()) await close.click()
+  }
+  await orb.click()
+  const panel = page.getByRole('dialog', { name: '客服問答' })
+  await panel.getByRole('button', { name: '這個網站怎麼用？' }).click()
+  await expect(panel.getByRole('log')).toContainText('結果會列出')
+  await panel.getByRole('button', { name: '關閉客服問答' }).click()
+  const input = page.getByRole('textbox', { name: '輸入問題' })
+  const marker = '這個網站怎麼用？測試字串742'
+  const requests: string[] = []
+  page.on('request', request => requests.push(request.url() + (request.postData() ?? '')))
+  await input.fill(marker)
+  await input.press('Enter')
+  await expect(page.getByRole('log')).toContainText('這題目前沒有收錄')
+  await input.fill('有人跟我要驗證碼')
+  await input.press('Enter')
+  await expect(page.getByRole('log')).toContainText('驗證碼先留給自己')
+  await input.fill('<b>這是一段純文字</b>')
+  await input.press('Enter')
+  await expect(page.getByRole('log')).toContainText('<b>這是一段純文字</b>')
+  await expect(page.getByRole('log').locator('b')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('log')).not.toContainText(marker)
+  expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(marker)
+  expect(requests.join('')).not.toContain(marker)
+  expect(requests.join('')).not.toContain(encodeURIComponent(marker))
+  await expect(orb).toBeVisible()
 })
