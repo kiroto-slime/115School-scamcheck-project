@@ -813,6 +813,10 @@ window.addEventListener('DOMContentLoaded', () => {
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);
     button.addEventListener('lostpointercapture', release);
+    // 跑跳已由指標事件處理，避免 iOS 把操作鍵上的快速連點解讀為放大。
+    button.addEventListener('touchend', event => {
+      if (event.cancelable) event.preventDefault();
+    }, { passive: false });
     button.addEventListener('contextmenu', event => event.preventDefault());
   });
   $('#pause-btn').onclick = pauseGame;

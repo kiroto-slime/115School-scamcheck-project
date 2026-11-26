@@ -146,6 +146,7 @@
 
 #game-stage {
   container-type: inline-size;
+  touch-action: manipulation;
   position: relative;
   width: min(calc(100vw - 4px), calc((100dvh - 4px) * 16 / 9));
   aspect-ratio: 16 / 9;
