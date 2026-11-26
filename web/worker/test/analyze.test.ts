@@ -175,6 +175,39 @@ describe('Gemini', () => {
     expect(['中', '高']).toContain(r.json.risk_level)
   })
 
+  it('Gemini 拒絕第一筆查核後仍可讀取規則結果，下一筆指定同模型成功也保留第一筆', async () => {
+    const model = 'gemini-3.5-flash-lite'
+    const attempts: string[] = []
+    mockFetch((url, init) => {
+      expect(url).toMatch(/\/interactions$/)
+      attempts.push(JSON.parse(String(init?.body)).model)
+      return attempts.length === 1
+        ? Response.json({ error: { message: 'User location is not supported for the API use.' } }, { status: 400 })
+        : geminiReply(GOOD)
+    })
+    const submit = (text: string) => call('/api/analyze/text', {
+      body: { text, use_ai: true, ai_model: model, query_cofacts: false, query_google: false }, envOverride: GEMINI,
+    })
+    const first = await submit('請在 24 小時內匯款，否則帳戶將被凍結。')
+    expect(first.status).toBe(200)
+    const firstPath = '/api/analysis/' + first.json.analysis_id
+    const saved = await call(firstPath)
+    expect(saved.status).toBe(200)
+    expect(saved.json).toMatchObject({
+      analysis_status: 'completed_with_source_error', risk_tags: expect.arrayContaining(['financial_request']),
+      consent_research: false, ai: { status: 'error', model, summary: expect.stringContaining('所在地區') },
+    })
+
+    const second = await submit('請確認這則包裹通知。')
+    expect(second.status).toBe(200)
+    expect(second.json.analysis_id).not.toBe(first.json.analysis_id)
+    expect(second.json.ai).toMatchObject({ status: 'ok', model })
+    expect(attempts).toEqual([model, model])
+    const reread = await call(firstPath)
+    expect(reread.status).toBe(200)
+    expect(reread.json).toEqual(saved.json)
+  })
+
   it('供應商的詳細錯誤不會隨查核結果保存或顯示', async () => {
     const diagnostic = 'provider-diagnostic-fixture'
     mockFetch(() => Response.json({ error: { message: diagnostic } }, { status: 400 }))

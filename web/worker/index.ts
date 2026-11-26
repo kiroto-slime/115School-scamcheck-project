@@ -50,7 +50,9 @@ app.use('*', async (c, next) => {
 app.get('/health', async (c) => {
   const s = c.get('settings')
   const tw165 = await tw165Meta(c.env)
-  const models = aiMode(c.env) === 'gemini' ? await modelStates(c.env.DB, s.gemini_models) : []
+  const models = aiMode(c.env) === 'gemini'
+    ? await modelStates(c.env.DB, s.gemini_models.filter(m => /^[a-z0-9][a-z0-9.-]{2,60}$/.test(m.id)))
+    : []
   const cur = currentModel(models)
   return c.json({
     status: 'ok',
@@ -64,7 +66,7 @@ app.get('/health', async (c) => {
       tw165: { available: tw165.available, origin: tw165.origin ?? null, updated_at: tw165.updated_at ?? null, count: tw165.count ?? 0 },
       ai: aiMode(c.env),
       ai_model: cur?.label ?? null,
-      ai_models: models.filter((m) => !m.unavailable),
+      ai_models: models,
       ai_quota_sync: await publicQuota(c.env, models),
       research_mode: s.research_mode,
       research_collection_enabled: s.research_collection_enabled,

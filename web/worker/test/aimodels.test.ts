@@ -2,9 +2,10 @@ import { env } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { analyzeWithFallback, googleDay, modelLabel, modelStates } from '../aimodels'
 import { DEFAULT_SETTINGS } from '../settings'
+import { publicQuota, refreshQuota } from '../quota-sync'
 import { call } from './helpers'
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 const E = { ...env, GEMINI_API_KEY: 'k' } as Env
 const GOOD = { risk_level: '低', summary: '一般邀約。', risk_points: [], advice: [] }
 const ok = () => new Response(JSON.stringify({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: JSON.stringify(GOOD) }] }] }))
@@ -23,6 +24,28 @@ function mockModels(handler: (model: string) => Response) {
 
 describe('模型輪替', () => {
   it('名稱好讀', () => expect(modelLabel('gemini-3.5-flash-lite')).toBe('Gemini 3.5 Flash Lite'))
+
+  it.each([
+    ['冬季', '2026-11-27T15:59:59+08:00', '2026-11-27T16:00:00+08:00', '2026-11-26', '2026-11-27'],
+    ['夏季', '2026-07-27T14:59:59+08:00', '2026-07-27T15:00:00+08:00', '2026-07-26', '2026-07-27'],
+  ])('美國太平洋時間換日，各模型的用量分開保留（臺灣%s）', async (_season, before, after, previousDay, nextDay) => {
+    const s = S([{ id: 'first', daily: 2, rpm: 5, media: true }, { id: 'second', daily: 5, rpm: 5, media: true }])
+    const remaining = async (at: string) => (await modelStates(env.DB, s.gemini_models, new Date(at))).map(m => m.remaining)
+    mockModels(() => ok())
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(before))
+    expect(googleDay()).toBe(previousDay)
+    for (const id of ['first', 'first', 'second']) {
+      expect((await analyzeWithFallback(E, s, '測試', [], undefined, id)).model).toBe(id)
+    }
+    expect(await remaining(before)).toEqual([0, 4])
+    vi.setSystemTime(new Date(after))
+    expect(googleDay()).toBe(nextDay)
+    expect(await remaining(after)).toEqual([2, 5])
+    await analyzeWithFallback(E, s, '測試', [], undefined, 'second')
+    expect(await remaining(after)).toEqual([2, 4])
+    expect(await remaining(before)).toEqual([0, 4])
+  })
 
   it('自己計數用完就換下一個', async () => {
     const used = mockModels(() => ok())
@@ -72,11 +95,182 @@ describe('模型輪替', () => {
     expect(used).toEqual(['b-2', 'a-1', 'a-1'])
   })
 
+  const two = S([{ id: 'first', daily: 20, rpm: 10, media: true }, { id: 'second', daily: 20, rpm: 10, media: true }])
+  const refused = (status: number, message: string) => Response.json({ error: { message } }, { status })
+
+  it.each([
+    [400, 'User location is not supported for the API use.', '所在地區'],
+    [400, 'Model first is not supported for the Interactions API in this region.', '所在地區'],
+    [404, 'Model first is not available for the Interactions API for this project.', '資源'],
+    [404, 'File files/private-example was not found.', '資源'],
+    [404, 'models/someone-else is not found', '資源'],
+    [404, 'models/first-other is not found', '資源'],
+    [403, 'The billing account for the project is disabled.', '權限'],
+    [400, 'API key not valid. Please pass a valid API key.', '金鑰無效'],
+  ] as const)('單次請求受到限制時不逐個送出，也不封鎖模型 %s %s', async (status, message, expected) => {
+    const used = mockModels(() => refused(status, message))
+    const r = await analyzeWithFallback(E, two, '測試', [])
+    expect(used).toEqual(['first'])
+    expect(r.status).toBe('error')
+    expect(r.summary).toContain(expected)
+    expect(r.summary).not.toContain('private-example')
+    expect((await modelStates(env.DB, two.gemini_models)).every(m => !m.unavailable)).toBe(true)
+  })
+
+  it('模型不支援本次的格式可以換下一個；下次不同請求仍可用首選', async () => {
+    let unsupported = true
+    const used = mockModels(m => m === 'first' && unsupported
+      ? refused(400, 'Response format is not supported for this model.') : ok())
+    expect((await analyzeWithFallback(E, two, '測試', [])).model).toBe('second')
+    unsupported = false
+    expect((await analyzeWithFallback(E, two, '另一次測試', [])).model).toBe('first')
+    expect(used).toEqual(['first', 'second', 'first'])
+  })
+
+  it('每個候選都拒絕相同格式時交代格式問題', async () => {
+    const used = mockModels(() => refused(400, 'Response format is not supported for this model.'))
+    const r = await analyzeWithFallback(E, two, '測試', [])
+    expect(used).toEqual(['first', 'second'])
+    expect(r).toMatchObject({ status: 'error', summary: expect.stringContaining('格式') })
+    expect(r.summary).not.toContain('額度')
+  })
+
+  it('模型在這個 API 只有部分回覆格式受限，不能把整個模型標為不可用', async () => {
+    const used = mockModels(m => m === 'first'
+      ? refused(400, 'Model first is not supported for the Interactions API with this response format.') : ok())
+    expect((await analyzeWithFallback(E, two, '測試', [])).model).toBe('second')
+    expect(used).toEqual(['first', 'second'])
+    expect((await modelStates(env.DB, two.gemini_models))[0].unavailable).toBe(false)
+  })
+
+  it('指定當日有封鎖標記的正確代號可重試；成功後自動查核可再使用', async () => {
+    let missing = true
+    const used = mockModels(m => m === 'first' && missing ? refused(404, 'models/first is not found') : ok())
+    await analyzeWithFallback(E, two, '測試', [])
+    missing = false
+    await analyzeWithFallback(E, two, '自動', [])
+    expect((await analyzeWithFallback(E, two, '指定', [], undefined, 'first')).model).toBe('first')
+    expect((await analyzeWithFallback(E, two, '自動', [])).model).toBe('first')
+    expect(used).toEqual(['first', 'second', 'second', 'first', 'first'])
+    expect((await modelStates(env.DB, two.gemini_models))[0]).toMatchObject({ remaining: 17, unavailable: false })
+  })
+
+  it('明確指出此模型不支援 Interactions API 才記下，兩次自動查核都顯示相同原因', async () => {
+    const used = mockModels(() => refused(400, "Model 'first' is not supported for the Interactions API."))
+    const s = S([two.gemini_models[0]])
+    for (let i = 0; i < 2; i++) {
+      const r = await analyzeWithFallback(E, s, '測試', [])
+      expect(r).toMatchObject({ status: 'error', summary: expect.stringContaining('模型名稱') })
+    }
+    expect(used).toEqual(['first'])
+  })
+
+  it.each([true, false])('指定重試同時進行，以較晚送出的模型狀態為準。較晚的請求成功 %s', async (lastSucceeded) => {
+    const s = S([two.gemini_models[0]])
+    const notFound = () => refused(404, 'models/first is not found')
+    const retry = (fetcher: typeof fetch) => analyzeWithFallback(E, s, '測試', [], fetcher, 'first')
+    await retry(async () => notFound())
+    let start!: () => void
+    let finish!: (response: Response) => void
+    const started = new Promise<void>(resolve => { start = resolve })
+    const slow = retry(() => new Promise<Response>(resolve => { finish = resolve; start() }))
+    await started
+    await retry(async () => lastSucceeded ? ok() : notFound())
+    finish(lastSucceeded ? notFound() : ok())
+    await slow
+    expect((await modelStates(env.DB, s.gemini_models))[0]).toMatchObject({ remaining: 17, unavailable: !lastSucceeded })
+  })
+
+  it('指定有停用標記的模型仍須符合每日、每分鐘和媒體限制', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-26T18:00:00Z'))
+    const used = mockModels(m => m === 'second' ? ok() : refused(404, 'models/first is not found'))
+    const limited = (daily: number, rpm: number, media: boolean) => S([{ id: 'first', daily, rpm, media }, two.gemini_models[1]])
+    await analyzeWithFallback(E, two, '測試', [])
+    expect((await analyzeWithFallback(E, limited(1, 10, true), '測試', [], undefined, 'first')).model).toBe('second')
+    expect((await analyzeWithFallback(E, limited(20, 1, true), '測試', [], undefined, 'first')).model).toBe('second')
+    const image = [{ kind: 'image' as const, mime: 'image/png', base64: 'AAAA' }]
+    expect((await analyzeWithFallback(E, limited(20, 10, false), '', image, undefined, 'first')).model).toBe('second')
+    expect(used).toEqual(['first', 'second', 'second', 'second', 'second'])
+    expect((await modelStates(env.DB, two.gemini_models))[0]).toMatchObject({ remaining: 19, unavailable: true })
+  })
+
+  it('讀取八個舊版停用標記時仍可重查，已消耗的每日和每分鐘次數照常生效', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-26T18:00:00Z'))
+    const models = Array.from({ length: 9 }, (_, i) => ({ id: 'check-' + i, daily: 20, rpm: 5, media: true }))
+    const day = googleDay()
+    const minute = new Date().toISOString().slice(11, 16).replace(':', '')
+    const seed = (name: string, count: number) => env.DB.prepare('INSERT INTO usage_counters(day,name,count) VALUES (?,?,?)').bind(day, name, count)
+    await env.DB.batch([...models.slice(1).map(m => seed('gemini_bad:' + m.id, 1)), seed('gemini:check-0', 20),
+      seed('gemini:check-1', 4), seed('gemini_rpm:check-1:' + minute, 5), seed('gemini:check-2', 2)])
+    const used = mockModels(() => ok())
+    const r = await analyzeWithFallback(E, S(models), '測試', [])
+    expect(r.model).toBe('check-2')
+    expect(used).toEqual(['check-2'])
+    const after = await modelStates(env.DB, models)
+    expect(after.slice(0, 3).map(m => m.remaining)).toEqual([0, 16, 17])
+    expect(after.every(m => !m.unavailable)).toBe(true)
+    expect(await env.DB.prepare('SELECT count FROM usage_counters WHERE day=? AND name=?')
+      .bind(day, 'gemini_rpm:check-1:' + minute).first('count')).toBe(5)
+  })
+
   it('全部用完：顯示額度用完，不送出', async () => {
     const used = mockModels(() => ok())
     const s = S([{ id: 'a-1', daily: 0, rpm: 5, media: true }])
     expect((await analyzeWithFallback(E, s, '你好', [])).status).toBe('rate_limited')
     expect(used).toEqual([])
+  })
+
+  describe('送出前讀取本機的監控快照', () => {
+    const monitored = { ...E, GOOGLE_MONITORING_PROJECT_ID: 'local-example', GOOGLE_MONITORING_CLIENT_EMAIL: 'local@example.invalid', GOOGLE_MONITORING_PRIVATE_KEY: 'local-fixture' }
+    const at = new Date('2026-11-27T01:00:00Z')
+    const snapshot = async (used: number) => {
+      await refreshQuota(monitored, two.gemini_models, 'manual', at, async () => ({
+        day: googleDay(at), models: { first: { limit: 20, used, asOf: at.toISOString() } },
+      }))
+    }
+    const freeze = (time: Date = at) => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(time) }
+
+    it('Google 已確認本日用完時，自動、手動和其他候選失敗後都不送該模型', async () => {
+      freeze()
+      await snapshot(20)
+      const s = S([...two.gemini_models, { ...two.gemini_models[0], id: 'third' }])
+      const used = mockModels(m => m === 'third' ? refused(400, 'Response format is not supported.') : ok())
+      for (const preferred of [undefined, 'first', 'third']) {
+        expect((await analyzeWithFallback(monitored, s, '測試', [], undefined, preferred)).model).toBe('second')
+      }
+      expect(used).toEqual(['second', 'second', 'third', 'second'])
+      expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(20)
+    })
+
+    it('本機估剩零、Google 用量尚未達限，仍可手動或自動使用', async () => {
+      freeze()
+      await snapshot(19)
+      await env.DB.prepare("INSERT INTO usage_counters(day,name,count) VALUES (?,'gemini:first',1)").bind(googleDay(at)).run()
+      const projected = await publicQuota(monitored, await modelStates(env.DB, two.gemini_models), at)
+      expect(projected.models[0]).toMatchObject({ estimated_remaining: 0, daily_limit_reached: false })
+      const used = mockModels(() => ok())
+      for (const preferred of [undefined, 'first']) {
+        expect((await analyzeWithFallback(monitored, two, '測試', [], undefined, preferred)).model).toBe('first')
+      }
+      expect(used).toEqual(['first', 'first'])
+    })
+
+    it.each(['未查過', '查詢失敗', '未設定憑證', '已過期', '不同專案', '不同額度日期'])('%s 時依本機模型狀態查核', async scenario => {
+      freeze()
+      if (scenario === '查詢失敗') {
+        await refreshQuota(monitored, two.gemini_models, 'manual', at, async () => { throw Error('監控查詢失敗') })
+      } else if (scenario !== '未查過') {
+        await snapshot(20)
+      }
+      if (scenario === '已過期') vi.setSystemTime(new Date(at.getTime() + 46 * 60_000))
+      if (scenario === '不同額度日期') await env.DB.prepare("UPDATE ai_quota_sync SET snapshot_day='2026-11-25'").run()
+      const target = scenario === '未設定憑證' ? E : scenario === '不同專案' ? { ...monitored, GOOGLE_MONITORING_PROJECT_ID: 'another-project' } : monitored
+      const used = mockModels(() => ok())
+      expect((await analyzeWithFallback(target, two, '測試', [])).model).toBe('first')
+      expect(used).toEqual(['first'])
+    })
   })
 
   it('health 顯示目前模型與剩餘次數', async () => {

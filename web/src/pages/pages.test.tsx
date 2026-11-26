@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -324,6 +324,93 @@ describe('AI 模型冷卻', () => {
     ai_models: [{ id: 'a-1', label: 'Gemini A', remaining: 20, daily: 20, media: true, minute_left: cooldown ? 0 : 5, cooldown_seconds: cooldown }] } })
   const serve = (body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
 
+  it.each(['2026-07-01T07:00:00Z', '2026-11-02T08:00:00Z'])('停留在查核頁跨過太平洋午夜 %s 只重讀一次站內額度', async midnight => {
+    const reset = Date.parse(midnight)
+    const hour = 3_600_000
+    vi.useFakeTimers({ now: reset - hour - 1000 })
+    try {
+      const available = withAi(0)
+      const used = { ...available, modes: { ...available.modes, ai_models: [{ ...available.modes.ai_models[0], remaining: 0 }] } }
+      const fetcher = vi.fn(async () => Response.json(Date.now() >= reset ? available : used))
+      vi.stubGlobal('fetch', fetcher)
+      const page = render(<MemoryRouter><Check /></MemoryRouter>)
+      fireEvent.click(screen.getByText('查核設定'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(hour) })
+      const checkbox = screen.getByRole('checkbox', { name: /使用 Gemini AI 分析/ })
+      expect(checkbox).toBeDisabled()
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+      expect(checkbox).toBeEnabled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(2 * hour) })
+      page.unmount()
+      await vi.advanceTimersByTimeAsync(24 * hour)
+      expect(fetcher.mock.calls).toEqual([['/api/health', undefined], ['/api/health', undefined]])
+    } finally { vi.useRealTimers() }
+  })
+
+  it('背景跨日等返回時才更新；若昨日的讀取尚未完成，仍取得新日的額度', async () => {
+    const hour = 3_600_000
+    vi.useFakeTimers({ now: Date.parse('2026-11-27T07:59:59Z') })
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    try {
+      const today = withAi(0)
+      const yesterday = { ...today, modes: { ...today.modes, ai_models: [{ ...today.modes.ai_models[0], remaining: 0 }] } }
+      let finishOld!: (response: Response) => void
+      const fetcher = vi.fn<typeof fetch>().mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+        .mockResolvedValueOnce(Response.json(today))
+      vi.stubGlobal('fetch', fetcher)
+      const page = render(<MemoryRouter><Check /></MemoryRouter>)
+      visibility.mockReturnValue('hidden')
+      fireEvent(document, new Event('visibilitychange'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(hour) })
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      visibility.mockReturnValue('visible')
+      fireEvent(document, new Event('visibilitychange'))
+      await act(async () => { finishOld(Response.json(yesterday)) })
+      fireEvent.click(screen.getByText('查核設定'))
+      expect(screen.getByRole('checkbox', { name: /使用 Gemini AI 分析/ })).toBeEnabled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(hour) })
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      page.unmount()
+    } finally { visibility.mockRestore(); vi.useRealTimers() }
+  })
+
+  it('自動略過暫停的模型，手動選擇有餘額的相容模型後才會隨查核送出', async () => {
+    const body = withAi(0)
+    const base = body.modes.ai_models[0]
+    const models = [
+      { ...base, remaining: 0 },
+      { ...base, id: 'text-retry', label: '文字模型', media: false, unavailable: true },
+      { ...base, id: 'cooling-retry', label: '冷卻模型', unavailable: true, minute_left: 0, cooldown_seconds: 50 },
+    ]
+    const submissions: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/analyze/text') submissions.push(JSON.parse(String(init?.body)))
+      return Response.json(url === '/api/health' ? { ...body, modes: { ...body.modes, ai_models: models } } : result)
+    }))
+    refreshHealth()
+    render(<MemoryRouter initialEntries={['/check']}><Routes><Route path="/check" element={<Check />} /><Route path="/result/:id" element={<p>結果頁</p>} /></Routes></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
+    const ai = await screen.findByRole('checkbox', { name: /使用 Gemini AI 分析/ })
+    expect(ai).toBeDisabled()
+    const select = screen.getByRole('combobox', { name: '選擇 AI 模型' })
+    expect(select).toHaveValue('')
+    expect(screen.getByRole('option', { name: /Gemini A/ })).toBeDisabled()
+    expect(screen.getByRole('option', { name: /冷卻模型/ })).toBeDisabled()
+    await userEvent.click(screen.getByRole('tab', { name: '圖片截圖' }))
+    expect(screen.queryByRole('option', { name: /文字模型/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '文字訊息' }))
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '選擇 AI 模型' }), 'text-retry')
+    expect(ai).toBeEnabled()
+    expect(ai).toBeChecked()
+    expect(submissions).toEqual([])
+    await userEvent.click(screen.getByLabelText(/協助校內研究（選填）/))
+    await userEvent.type(screen.getByLabelText(/貼上可疑訊息/), '本機測試')
+    await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
+    await screen.findByText('結果頁')
+    expect(submissions).toEqual([expect.objectContaining({ use_ai: true, ai_model: 'text-retry' })])
+  })
+
   it('回到查核頁時讀取最新狀態；部分模型失效時不把所有額度說成已用完', async () => {
     const old = withAi(0)
     serve(old)
@@ -370,10 +457,18 @@ describe('AI 模型冷卻', () => {
     render(<MemoryRouter><Check /></MemoryRouter>)
     await userEvent.click(screen.getByText('查核設定'))
     expect(await screen.findByText('本站記錄的今日 AI 次數已達上限')).toBeVisible()
-    serve({ ...body, modes: { ...modes, ai_quota_sync: { checked_at: asOf, unavailable_models: [],
+    const pausedModels = [{ ...body.modes.ai_models[0], unavailable: true }]
+    serve({ ...body, modes: { ...body.modes, ai_models: pausedModels, ai_quota_sync: { checked_at: asOf, unavailable_models: [],
       models: [{ id: 'a-1', as_of: asOf, estimated_remaining: 0, daily_limit_reached: true }] } } })
     fireEvent(document, new Event('visibilitychange'))
     expect(await screen.findByText('Google 今日 AI 額度已用完')).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: /使用 Gemini AI 分析/ })).toBeDisabled()
+    expect(screen.queryByRole('combobox', { name: '選擇 AI 模型' })).toBeNull()
+    serve({ ...body, modes: { ...body.modes, ai_models: pausedModels } })
+    fireEvent(document, new Event('visibilitychange'))
+    const picker = await screen.findByRole('combobox', { name: '選擇 AI 模型' })
+    await userEvent.selectOptions(picker, 'a-1')
+    expect(screen.getByRole('checkbox', { name: /使用 Gemini AI 分析/ })).toBeEnabled()
   })
 
   it('沒有冷卻時不會閃爍（勾選框一直可用）', async () => {

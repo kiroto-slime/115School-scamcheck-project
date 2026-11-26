@@ -3,17 +3,27 @@ import { api, type Health } from '../api'
 import { useLanguage, riskLabel } from '../language'
 
 let pendingHealth: Promise<Health> | null = null
+let pendingDay = ''
 let lastHealth: Health | null = null
 const healthListeners = new Set<(h: Health) => void>()
+const pacificDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' })
+const hour = 3_600_000
 
 /** 只共用進行中的站內查詢，返回查核頁時重新取得剩餘次數。 */
-function readHealth() {
-  pendingHealth ??= api<Health>('/api/health').then(h => {
-    lastHealth = h
-    healthListeners.forEach(notify => notify(h))
+function readHealth(): Promise<Health> {
+  const day = pacificDate.format(Date.now())
+  if (pendingHealth && pendingDay === day) return pendingHealth
+  pendingDay = day
+  const request = api<Health>('/api/health').then(h => {
+    // 昨天發出的請求可能比今天的慢，避免舊回應蓋掉新額度。
+    if (pendingHealth === request) {
+      lastHealth = h
+      healthListeners.forEach(notify => notify(h))
+    }
     return h
-  }).finally(() => { pendingHealth = null })
-  return pendingHealth
+  }).finally(() => { if (pendingHealth === request) pendingHealth = null })
+  pendingHealth = request
+  return request
 }
 
 export function refreshHealth() {
@@ -25,15 +35,41 @@ export function useHealth(refreshOnReturn = false) {
   const [error, setError] = useState(false)
   useEffect(() => {
     let active = true
+    let seenDay = pacificDate.format(Date.now())
+    let timer: number | undefined
     const receive = (value: Health) => { setHealth(value); setError(false) }
-    const load = () => { void readHealth().catch(() => { if (active) setError(true) }) }
-    const resume = () => { if (document.visibilityState === 'visible') load() }
+    const load = () => {
+      const day = seenDay
+      void readHealth().catch(() => { if (active && day === seenDay) setError(true) })
+    }
+    function scheduleCheck() {
+      window.clearTimeout(timer)
+      if (document.visibilityState !== 'visible') return
+      // 太平洋午夜落在 UTC 整點。只在瀏覽器比對日期，跨日時才向本站讀取。
+      timer = window.setTimeout(() => {
+        if (document.visibilityState !== 'visible') return
+        const day = pacificDate.format(Date.now())
+        if (seenDay !== day) { seenDay = day; load() }
+        scheduleCheck()
+      }, hour - Date.now() % hour)
+    }
+    const resume = () => {
+      if (document.visibilityState === 'visible') {
+        seenDay = pacificDate.format(Date.now())
+        load()
+      }
+      scheduleCheck()
+    }
     healthListeners.add(receive)
     if (!refreshOnReturn && lastHealth && !pendingHealth) receive(lastHealth)
     else load()
-    if (refreshOnReturn) document.addEventListener('visibilitychange', resume)
+    if (refreshOnReturn) {
+      scheduleCheck()
+      document.addEventListener('visibilitychange', resume)
+    }
     return () => {
       active = false
+      window.clearTimeout(timer)
       healthListeners.delete(receive)
       if (refreshOnReturn) document.removeEventListener('visibilitychange', resume)
     }

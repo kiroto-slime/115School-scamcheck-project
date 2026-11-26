@@ -2,11 +2,14 @@
  * Gemini 多模型輪替：依「系統設定」的順序使用，一個模型今天的額度用完就自動換下一個。
  * - 次數以美國太平洋時間的日期計算（和 Google 免費額度的重置時間一致）。
  * - Google 回報「每日額度用完」→ 該模型今天標記為用完；「每分鐘額度」→ 這次先換下一個。
- * - 模型代號錯誤（404）→ 今天先跳過，管理頁可用「列出可用模型」確認正確代號。
+ * - Google 明確指出指定模型不存在或不支援這個 API 時，自動模式今天先跳過該模型。
  */
 import { AIMedia, AIResult, Gemini, GeminiError } from './gemini'
 import type { AppSettings } from './settings'
-import { takeDailyQuota } from './util'
+import { publicQuota } from './quota-sync'
+import { googleDay, takeDailyQuota } from './util'
+
+export { googleDay } from './util'
 
 export interface ModelConf {
   id: string
@@ -41,24 +44,31 @@ export function modelLabel(id: string): string {
     .join(' ')
 }
 
-/** Google 免費額度的「一天」：美國太平洋時間 */
-export function googleDay(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
-}
-
 const usedKey = (id: string) => `gemini:${id}`
-const badKey = (id: string) => `gemini_bad:${id}`
+// 舊 gemini_bad 資料混有檔案與輸入錯誤，不再用來判斷模型。每日和每分鐘的用量仍沿用原資料。
+const availabilityKey = (id: string) => `gemini_model_status:${id}`
 
-async function bump(db: D1Database, day: string, name: string, by = 1): Promise<number> {
+/** 為要送出的請求保留一次額度；同時有人查核時，已滿的計數不再遞增。 */
+async function reserveCount(db: D1Database, day: string, name: string, limit: number): Promise<number | null> {
+  if (limit <= 0) return null
   const row = await db
-    .prepare('INSERT INTO usage_counters (day, name, count) VALUES (?, ?, ?) ON CONFLICT(day, name) DO UPDATE SET count = count + excluded.count RETURNING count')
-    .bind(day, name, by)
+    .prepare(`INSERT INTO usage_counters (day, name, count) VALUES (?, ?, 1)
+      ON CONFLICT(day, name) DO UPDATE SET count = count + 1 WHERE count < ? RETURNING count`)
+    .bind(day, name, limit)
     .first<{ count: number }>()
-  return row?.count ?? by
+  return row?.count ?? null
 }
 
 async function setCount(db: D1Database, day: string, name: string, count: number) {
-  await db.prepare('INSERT INTO usage_counters (day, name, count) VALUES (?, ?, ?) ON CONFLICT(day, name) DO UPDATE SET count = excluded.count').bind(day, name, count).run()
+  await db.prepare('INSERT INTO usage_counters (day, name, count) VALUES (?, ?, ?) ON CONFLICT(day, name) DO UPDATE SET count = MAX(count, excluded.count)').bind(day, name, count).run()
+}
+
+async function recordModelAvailability(db: D1Database, day: string, id: string, attempt: number, available: boolean) {
+  // 以該次請求扣每日次數的順序為準。正值表示模型不可用，負值表示成功；較早送出的回應不能蓋掉後來的結果。
+  await db.prepare(`INSERT INTO usage_counters (day, name, count) VALUES (?, ?, ?)
+      ON CONFLICT(day, name) DO UPDATE SET count = excluded.count
+      WHERE ABS(excluded.count) > ABS(usage_counters.count)`)
+    .bind(day, availabilityKey(id), available ? -attempt : attempt).run()
 }
 
 export interface ModelState {
@@ -83,7 +93,7 @@ export async function modelStates(db: D1Database, models: ModelConf[], now = new
   const minute = minuteKey(now)
   const { results } = await db
     .prepare('SELECT name, count FROM usage_counters WHERE day = ? AND (name LIKE ? OR name LIKE ? OR name LIKE ?)')
-    .bind(day, 'gemini:%', 'gemini_bad:%', `gemini_rpm:%:${minute}`)
+    .bind(day, 'gemini:%', 'gemini_model_status:%', `gemini_rpm:%:${minute}`)
     .all<{ name: string; count: number }>()
   const counts = new Map(results.map((r) => [r.name, r.count]))
   const secondsToNextMinute = 60 - now.getUTCSeconds()
@@ -95,7 +105,7 @@ export async function modelStates(db: D1Database, models: ModelConf[], now = new
       daily: m.daily,
       remaining: Math.max(0, m.daily - (counts.get(usedKey(m.id)) ?? 0)),
       media: m.media,
-      unavailable: (counts.get(badKey(m.id)) ?? 0) > 0,
+      unavailable: (counts.get(availabilityKey(m.id)) ?? 0) > 0,
       minute_left: minuteLeft,
       cooldown_seconds: minuteLeft > 0 ? 0 : secondsToNextMinute,
     }
@@ -128,19 +138,24 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
   const day = googleDay(now)
   const minute = minuteKey(now)
   const states = await modelStates(env.DB, models, now)
+  // 這裡只讀 D1 快照。只有 Google 已確認用完的才跳過；監控延遲而推估為零的仍可試。
+  const snapshot = await publicQuota(env, states, now)
+  const exhausted = new Set(snapshot.models.filter(m => m.daily_limit_reached).map(m => m.id))
   const skipped: string[] = []
+  let lastFailure: AIResult | undefined
   for (const m of models) {
     const st = states.find((x) => x.id === m.id)!
-    if (st.unavailable || st.remaining <= 0 || (needMedia && !m.media)) continue
+    if (exhausted.has(m.id) || (st.unavailable && m.id !== chosen?.id) || st.remaining <= 0 || (needMedia && !m.media)) continue
     // 先檢查每分鐘，再扣每日次數
-    if ((await bump(env.DB, day, rpmKey(m.id, minute))) > m.rpm) {
+    if (st.minute_left <= 0 || await reserveCount(env.DB, day, rpmKey(m.id, minute), m.rpm) === null) {
       skipped.push(`${modelLabel(m.id)} 這一分鐘的次數已滿`)
       continue
     }
-    if ((await bump(env.DB, day, usedKey(m.id))) > m.daily) continue
+    const attempt = await reserveCount(env.DB, day, usedKey(m.id), m.daily)
+    if (attempt === null) continue
+    let out: AIResult
     try {
-      const out = await new Gemini(env, m.id, fetcher).analyzeOnce(text, media)
-      return { ...out, sent_media: sent, fallback_note: skipped.length ? `已自動改用 ${modelLabel(m.id)}（${skipped.join('；')}）` : null }
+      out = await new Gemini(env, m.id, fetcher).analyzeOnce(text, media)
     } catch (e) {
       if (!(e instanceof GeminiError)) return fail('error', 'Gemini 回覆格式無法解讀，請再試一次。', m.id)
       if (e.status === 429) {
@@ -154,6 +169,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         }
         continue
       }
+      lastFailure = fail('error', e.message, m.id)
       if (e.status === 408) {
         skipped.push(`${modelLabel(m.id)} 超過 3 分鐘沒有回應`)
         continue
@@ -164,13 +180,23 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         continue
       }
       if (e.reason === 'model_unavailable') {
-        await bump(env.DB, day, badKey(m.id))
+        await recordModelAvailability(env.DB, day, m.id, attempt, false)
         skipped.push(`${modelLabel(m.id)} 無法使用`)
         continue
       }
-      return fail('error', e.message, m.id)
+      if (e.reason === 'unsupported_input') {
+        skipped.push(`${modelLabel(m.id)} 不支援這次查核的格式`)
+        continue
+      }
+      return lastFailure
     }
+    await recordModelAvailability(env.DB, day, m.id, attempt, true)
+    return { ...out, sent_media: sent, fallback_note: skipped.length ? `已自動改用 ${modelLabel(m.id)}（${skipped.join('；')}）` : null }
   }
+  if (lastFailure) return lastFailure
+  if (states.some((m) => m.unavailable && !exhausted.has(m.id) && m.remaining > 0 && (!needMedia || m.media)))
+    return fail('error', '找不到指定的 Gemini 模型，請到管理頁「系統設定」確認模型名稱。')
+  if (needMedia && !states.some((m) => m.media)) return fail('error', '這個模型不支援這次查核的格式，請改用其他模型或調整輸入內容。')
   return fail('rate_limited', needMedia
     ? '今天能分析圖片、影片的 AI 模型額度都用完了，請明天再試，或改在補充文字輸入內容。'
     : '今天所有 AI 模型的免費額度都用完了（或這一分鐘太多人使用），請稍後再試。')

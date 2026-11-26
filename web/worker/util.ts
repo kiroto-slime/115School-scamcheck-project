@@ -1,5 +1,10 @@
 /** 共用小工具 */
 
+/** Google 免費額度以美國太平洋時間換日。 */
+export function googleDay(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+}
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message)

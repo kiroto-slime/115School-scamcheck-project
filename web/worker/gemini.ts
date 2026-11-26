@@ -95,35 +95,54 @@ const ERROR_ZH: Record<number, string> = {
   400: 'Gemini 拒絕了這次請求（模型不支援此檔案格式，或內容被安全機制擋下）。',
   401: 'Gemini API 金鑰無效。',
   403: 'Gemini API 金鑰沒有權限，請到 Google AI Studio 確認。',
-  404: '找不到指定的 Gemini 模型，請到管理頁「系統設定」確認模型名稱。',
+  404: 'Google 找不到這次請求的資源，請確認模型名稱；若有附檔，請重新上傳。',
   429: 'Gemini 免費額度已用完或請求太頻繁，請稍後再試。',
 }
 
 export class GeminiError extends Error {
-  constructor(message: string, public status = 0, public reason?: 'daily_quota' | 'model_unavailable') {
+  constructor(message: string, public status = 0, public reason?: 'daily_quota' | 'model_unavailable' | 'unsupported_input') {
     super(message)
   }
 }
 
-async function toError(r: Response): Promise<GeminiError> {
-  const raw = await r.text().catch(() => '')
-  const reason = r.status === 429 && /PerDay|per day|daily/i.test(raw) ? 'daily_quota'
-    : r.status === 404 || (r.status === 400 && /not found|not supported|unsupported model|is not available/i.test(raw)) ? 'model_unavailable' : undefined
-  return new GeminiError(errorMessage(r.status, raw), r.status, reason)
+function missingModel(detail: string, model: string): boolean {
+  const named = /^(?:the )?(?:model\s+['"\x60]?(?:models\/)?|['"\x60]?models\/)([a-z0-9._-]+)['"\x60]?\s+(.+)/i.exec(detail)
+  if (named?.[1] !== model) return false
+  // 辨認完整敘述，避免「這個 API 在特定地區、專案或輸入格式不支援」也變成整個模型停用。
+  const statement = named[2].split(/[.!](?=\s|$)/, 1)[0].trim()
+  return /^(?:(?:was |is )?not found|does not exist)$/i.test(statement) ||
+    /^(?:is )?not found for API version v[a-z0-9.]+(?:, or is not supported for (?:generateContent|createInteraction|interactions))?$/i.test(statement) ||
+    /^(?:is )?(?:not supported|not available) (?:for|in|on) (?:the )?(?:Interactions(?: API)?|(?:Gemini )?API version v[a-z0-9.]+)$/i.test(statement)
 }
 
-function errorMessage(status: number, raw: string): string {
+async function toError(r: Response, model?: string): Promise<GeminiError> {
+  const raw = await r.text().catch(() => '')
   let detail = ''
   try {
     let body = JSON.parse(raw) as unknown
     if (Array.isArray(body)) body = body[0]
-    detail = String((body as { error?: { message?: string } })?.error?.message ?? '').slice(0, 200)
+    detail = String((body as { error?: { message?: string } })?.error?.message ?? '').slice(0, 1024).trim()
   } catch {
     /* 非 JSON */
   }
-  if (detail.includes('API key not valid') || detail.includes('API_KEY_INVALID')) return 'Gemini API 金鑰無效，請重新複製 GEMINI_API_KEY（注意前後不要有空白）。'
-  if (detail.includes('location is not supported')) return 'Google 不支援目前伺服器所在地區使用 Gemini API，請稍後再試。'
-  return ERROR_ZH[status] ?? `Gemini 服務暫時無法使用（${status}），請稍後再試。`
+  const status = r.status
+  let reason: GeminiError['reason']
+  let message = ERROR_ZH[status] ?? `Gemini 服務暫時無法使用（${status}），請稍後再試。`
+  if (detail.includes('API key not valid') || detail.includes('API_KEY_INVALID')) {
+    message = 'Gemini API 金鑰無效，請重新複製 GEMINI_API_KEY（注意前後不要有空白）。'
+  } else if (/(?:location|region) is not supported|(?:not supported|not available) [^.!]{0,120}\b(?:location|region)\b/i.test(detail)) {
+    message = 'Google 不支援目前伺服器所在地區使用 Gemini API，請稍後再試。'
+  } else if (status === 429 && /PerDay|per day|daily/i.test(raw)) {
+    reason = 'daily_quota'
+  } else if (model && (status === 404 || status === 400) && missingModel(detail, model)) {
+    reason = 'model_unavailable'
+    message = '找不到指定的 Gemini 模型，請到管理頁「系統設定」確認模型名稱。'
+  } else if (model && status === 400 && /not supported|unsupported|does not support/i.test(detail) &&
+      /(?:response[ _-]format|mime[ _-]type|media type|input modality|thinking[ _-]level|structured output|system[ _-]instruction)/i.test(detail)) {
+    reason = 'unsupported_input'
+    message = '這個模型不支援這次查核的格式，請改用其他模型或調整輸入內容。'
+  }
+  return new GeminiError(message, status, reason)
 }
 
 /** 支援兩種官方文件寫法：steps[].content[] 與 outputs[] */
@@ -180,7 +199,7 @@ export class Gemini {
         await sleep(this.retryDelayMs)
         continue
       }
-      if (!r.ok) throw await toError(r)
+      if (!r.ok) throw await toError(r, this.model)
       return r.json()
     }
     throw new GeminiError('Gemini 服務暫時無法使用。')

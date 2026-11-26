@@ -91,17 +91,20 @@ export default function Check() {
     .map((m) => {
       const cooldown = Math.max(0, m.cooldown_seconds - passed)
       const sample = sync?.models.find(sample => sample.id === m.id)
-      const left = Math.min(m.remaining, sample?.estimated_remaining ?? m.remaining)
+      const remaining = sample?.daily_limit_reached ? 0 : m.remaining
+      const left = Math.min(remaining, sample?.estimated_remaining ?? remaining)
       const estimate = sample
         ? t(`校準後估剩 ${left} 次`, `about ${left} left after sync`, `照合後の目安 残り${left}回`, `동기화 후 약 ${left}회 남음`)
         : t(`本站估計剩 ${left} 次`, `site estimate: ${left} left`, `サイト推定 残り${left}回`, `사이트 추정 ${left}회 남음`)
-      return { ...m, sample, estimate, left, cooldown, minute_left: cooldown > 0 ? 0 : Math.max(m.minute_left, 1) }
+      return { ...m, remaining, sample, estimate, left, cooldown, canTry: remaining > 0 && cooldown === 0,
+        minute_left: cooldown > 0 ? 0 : Math.max(m.minute_left, 1) }
     })
   const aiNow = currentAiModel(aiModels)
+  const canPickModel = aiModels.some(m => m.canTry)
   const aiLeft = aiModels.reduce((sum, m) => sum + m.left, 0)
-  const unavailable = sync?.unavailable_models.some(m => mode === 'text' || m.media) ?? false
+  const unavailable = aiModels.some(m => m.unavailable) || sync?.unavailable_models.some(m => mode === 'text' || m.media)
   const confirmedDailyLimit = aiModels.length > 0 && aiModels.every(m => m.sample?.daily_limit_reached)
-  const blockedReason = !aiModels.length || unavailable
+  const blockedReason = !aiModels.length || (unavailable && !confirmedDailyLimit)
     ? t('目前沒有可用的 AI 模型', 'No AI model is currently available', '現在利用できるAIモデルがありません', '현재 사용할 수 있는 AI 모델이 없습니다')
     : confirmedDailyLimit
       ? t('Google 今日 AI 額度已用完', 'Google’s daily AI limit has been reached', 'Googleの本日のAI利用枠に達しました', 'Google의 오늘 AI 사용 한도에 도달했습니다')
@@ -139,23 +142,27 @@ export default function Check() {
   useEffect(() => { if (serverCooling && !cooling) refreshHealth() }, [serverCooling, cooling])
   const [aiChoice, setAiChoice] = useState('')
   // 切到圖片／影片、或選的模型用完／冷卻中時，改回自動
-  const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0 && m.cooldown === 0) ? aiChoice : ''
-  const activeSample = (aiModel ? aiModels.find(m => m.id === aiModel) : aiNow)?.sample
+  const selectedModel = aiModels.find(m => m.id === aiChoice && m.canTry)
+  const aiModel = selectedModel?.id ?? ''
+  const activeSample = (selectedModel ?? aiNow)?.sample
   const updated = activeSample && new Date(activeSample.as_of).toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const modelOptions = aiModels.map(m => {
     const quotaLabel = m.remaining <= 0
       ? t('今日已達上限', 'daily limit reached', '本日の上限', '오늘 사용 한도 도달')
       : m.cooldown > 0
         ? t(`冷卻中 ${m.cooldown} 秒`, `available in ${m.cooldown}s`, `あと${m.cooldown}秒`, `${m.cooldown}초 후 가능`)
-        : m.estimate
+        : m.unavailable
+          ? t('上次無法使用，可手動重試', 'Previously unavailable. Retry manually.', '前回は利用不可・手動で再試行可', '이전에 사용 불가 · 수동 재시도 가능')
+          : m.estimate
     return {
       id: m.id,
-      disabled: m.remaining <= 0 || m.cooldown > 0,
+      disabled: !m.canTry,
       label: m.label + t('（', ' (', '（', ' (') + quotaLabel + t('）', ')', '）', ')'),
     }
   })
-  const autoLabel = aiNow ? t(`自動（${aiNow.label}，估剩 ${aiNow.left} 次）`, `Auto (${aiNow.label}, ~${aiNow.left} left)`, `自動（${aiNow.label}、残り約${aiNow.left}回）`, `자동(${aiNow.label}, 약 ${aiNow.left}회 남음)`) : ''
-  const aiBlocked = !aiNow // 今天用完，或這一分鐘全部冷卻中
+  const autoLabel = aiNow ? t(`自動（${aiNow.label}，估剩 ${aiNow.left} 次）`, `Auto (${aiNow.label}, ~${aiNow.left} left)`, `自動（${aiNow.label}、残り約${aiNow.left}回）`, `자동(${aiNow.label}, 약 ${aiNow.left}회 남음)`)
+    : t('自動暫停，請選模型重試', 'Auto paused. Select a model to retry.', '自動選択は一時停止中。手動でモデルを選択してください', '자동 선택 일시 중지. 재시도할 모델을 선택하세요.')
+  const aiBlocked = !aiNow && !selectedModel
   const aiOn = aiAvailable && useAi && !aiBlocked
   const googleAvailable = health?.modes.google === 'live'
   const vtAvailable = health?.modes.virustotal === 'live'
@@ -267,7 +274,7 @@ export default function Check() {
       }
       if (mode === 'text') {
         setBusy(t('正在送出，請先保留此頁。', 'Sending. Keep this page open.', '送信中です。このページでお待ちください。', '보내는 중입니다. 이 페이지를 열어 두세요.'))
-        const response = await postJson<AnalysisResult | CheckReceipt>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }, { Prefer: 'respond-async' })
+        const response = await postJson<AnalysisResult | CheckReceipt>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiOn && aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }, { Prefer: 'respond-async' })
         if ('job_status' in response) {
           const saved = saveReceipt({ id: response.analysis_id, at: response.created_at, job: 'pending', level: '', media: 'text', score: null, reason: null })
           clearDraft()
@@ -277,7 +284,7 @@ export default function Check() {
         result = response
       } else {
         const ai = aiOn
-        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
+        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(ai && aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
         if (mode === 'image') {
           setBusy('處理圖片中…')
           const img = await prepareImage(file!)
@@ -408,7 +415,7 @@ export default function Check() {
             disabled: aiBlocked,
             note: updated ? <>{activeSample?.daily_limit_reached && t('Google 已回報這個模型今日達限。', 'Google reports this model reached its daily limit. ', 'Googleの集計ではこのモデルは本日の上限に達しました。', 'Google 집계에서 이 모델은 오늘 한도에 도달했습니다. ')}{t(`Google 用量更新於 ${updated}`, `Google usage as of ${updated}`, `Googleの利用状況の更新日時：${updated}`, `Google 사용량 갱신 시각: ${updated}`)}</>
               : aiNow && t('次數依本站紀錄估算', 'Estimated from site usage', '回数はサイトの記録から推定', '사이트 사용 기록 기준 추정치'),
-            chip: aiNow ? (
+            chip: canPickModel ? (
               <>
                 <span className="model-selection-label input" aria-hidden="true">{modelOptions.find(m => m.id === aiModel)?.label ?? autoLabel}</span>
                 <select aria-label={t('選擇 AI 模型', 'Choose AI model', 'AIモデルを選択', 'AI 모델 선택')} className="input min-h-11 py-1 text-xs" value={aiModel}

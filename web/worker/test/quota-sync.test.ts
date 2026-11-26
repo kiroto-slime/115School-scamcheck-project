@@ -95,4 +95,18 @@ describe('管理頁額度校準', () => {
     expect(health.json.modes.ai_models.length).toBeGreaterThan(0)
     expect(health.json.modes.ai_quota_sync.models).toEqual([])
   })
+
+  it('手動重試也保留已暫停模型的當日達限快照，略過過期資料及設定以外的模型', async () => {
+    const other = { ...models[0], id: 'old-model' }
+    const atLimit = { limit: 20, used: 20, asOf: at(-5).toISOString() }
+    await refreshQuota(configured, [...models, other], 'manual', at(0), async () => ({
+      day: '2026-11-26', models: { 'model-1': atLimit, 'old-model': atLimit },
+    }))
+    const [model] = await modelStates(env.DB, models, at(1))
+    const states = [{ ...model, unavailable: true }]
+    expect(model.remaining).toBe(20)
+    const fresh = await publicQuota(configured, states, at(1))
+    expect(fresh.models).toEqual([{ id: 'model-1', daily_limit_reached: true, estimated_remaining: 0, as_of: atLimit.asOf }])
+    expect((await publicQuota(configured, states, at(49))).models).toEqual([])
+  })
 })

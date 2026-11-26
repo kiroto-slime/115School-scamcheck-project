@@ -1,6 +1,6 @@
-import { googleDay, type ModelConf, type ModelState } from './aimodels'
+import type { ModelConf, ModelState } from './aimodels'
 import { MonitoringError, monitoringConfigured, readGoogleQuota } from './google-monitoring'
-import { HttpError, parseJson } from './util'
+import { googleDay, HttpError, parseJson } from './util'
 
 const minute = 60_000
 const projectId = (env: Env) => env.GOOGLE_MONITORING_PROJECT_ID?.trim() ?? ''
@@ -127,7 +127,7 @@ export async function publicQuota(env: Env, states: ModelState[], now = new Date
   if (!Array.isArray(samples)) return result
   for (const m of samples) {
     if (!m || !Number.isFinite(m.used) || !Number.isFinite(m.limit) || !Number.isFinite(m.local_at_cutoff)) continue
-    const state = states.find(s => s.id === m.id && !s.unavailable)
+    const state = states.find(s => s.id === m.id)
     if (!state || !fresh(row, m, now)) continue
     const sinceCutoff = Math.max(0, state.daily - state.remaining - m.local_at_cutoff)
     result.models.push({ id: m.id, daily_limit_reached: m.limit > 0 && m.used >= m.limit, as_of: m.as_of,

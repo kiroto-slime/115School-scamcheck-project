@@ -114,11 +114,11 @@ export interface AnalysisResult {
 /** 外部服務今天剩幾次、這一分鐘是否冷卻中 */
 export interface QuotaState { daily_left: number; minute_left: number | null; cooldown_seconds: number }
 
-export interface AiModelState { id: string; label: string; remaining: number; daily: number; media: boolean; minute_left: number; cooldown_seconds: number }
+export interface AiModelState { id: string; label: string; remaining: number; daily: number; media: boolean; minute_left: number; cooldown_seconds: number; unavailable?: boolean }
 
 /** 會被使用的模型：有圖片／影片時只看能分析媒體的 */
 export const currentAiModel = <T extends AiModelState>(models: T[] = [], needMedia = false) =>
-  models.find((m) => m.remaining > 0 && m.minute_left > 0 && (!needMedia || m.media)) ?? null
+  models.find((m) => !m.unavailable && m.remaining > 0 && m.minute_left > 0 && (!needMedia || m.media)) ?? null
 
 export interface UrlCheck { status: string; message: string; threats: { host_masked: string; detail: string }[] }
 

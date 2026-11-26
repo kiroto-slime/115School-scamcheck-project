@@ -170,6 +170,8 @@ const phrases = new Map<string, Translations>([
   ['Gemini API 金鑰無效。', ['The Gemini API key is invalid.', 'Gemini APIキーが無効です。', 'Gemini API 키가 유효하지 않습니다.']],
   ['Gemini API 金鑰沒有權限，請到 Google AI Studio 確認。', ['The Gemini API key lacks permission. Check its settings in Google AI Studio.', 'Gemini APIキーに権限がありません。Google AI Studioで確認してください。', 'Gemini API 키에 권한이 없습니다. Google AI Studio에서 확인하세요.']],
   ['找不到指定的 Gemini 模型，請到管理頁「系統設定」確認模型名稱。', ['The Gemini model was not found. Check its name in the admin system settings.', '指定のGeminiモデルが見つかりません。管理画面のシステム設定でモデル名を確認してください。', '지정한 Gemini 모델을 찾을 수 없습니다. 관리 페이지의 시스템 설정에서 모델 이름을 확인하세요.']],
+  ['Google 找不到這次請求的資源，請確認模型名稱；若有附檔，請重新上傳。', ['Google could not find the requested resource. Check the model name and upload any attachment again.', 'Googleで指定のリソースが見つかりません。モデル名を確認し、添付ファイルがあれば再度アップロードしてください。', 'Google에서 요청한 리소스를 찾을 수 없습니다. 모델 이름을 확인하고 첨부 파일이 있으면 다시 올려 주세요.']],
+  ['這個模型不支援這次查核的格式，請改用其他模型或調整輸入內容。', ['This model does not support the format of this check. Choose another model or change the input.', 'このモデルは今回の確認に使用する形式に対応していません。別のモデルを選ぶか、入力内容を変更してください。', '이 모델은 이번 확인에 사용한 형식을 지원하지 않습니다. 다른 모델을 선택하거나 입력 내용을 수정하세요.']],
   ['Gemini 免費額度已用完或請求太頻繁，請稍後再試。', ['Gemini’s free limit was reached or too many requests were made. Try later.', 'Geminiの無料枠の上限、またはリクエスト回数の制限に達しました。しばらくしてから再試行してください。', 'Gemini 무료 사용량이 소진되었거나 요청이 너무 많습니다. 잠시 후 다시 시도하세요.']],
   ['Gemini API 金鑰無效，請重新複製 GEMINI_API_KEY（注意前後不要有空白）。', ['The Gemini API key is invalid. Recheck GEMINI_API_KEY for extra spaces.', 'Gemini APIキーが無効です。GEMINI_API_KEYの前後に空白がないか確認してください。', 'Gemini API 키가 유효하지 않습니다. GEMINI_API_KEY 앞뒤에 공백이 없는지 확인하세요.']],
   ['Google 不支援目前伺服器所在地區使用 Gemini API，請稍後再試。', ['Google does not support the Gemini API in the server’s current region. Try later.', '現在のサーバー地域ではGemini APIが利用できません。しばらくしてから再試行してください。', 'Google이 현재 서버 지역에서 Gemini API를 지원하지 않습니다. 잠시 후 다시 시도하세요.']],
@@ -187,6 +189,7 @@ const phrases = new Map<string, Translations>([
   ['今日額度已用完', ['daily limit reached', '本日の上限に到達', '오늘 사용량 소진']],
   ['超過 3 分鐘沒有回應', ['no response after 3 minutes', '3分間応答なし', '3분 동안 응답 없음']],
   ['暫時太多人使用', ['temporarily busy', '一時的に混雑', '일시적으로 사용량이 많음']],
+  ['不支援這次查核的格式', ['does not support this format', '今回の形式に非対応', '이번 요청 형식 미지원']],
   ['無法使用', ['unavailable', '利用不可', '사용 불가']],
 ])
 
@@ -235,7 +238,7 @@ export function checkMessage(t: Translate, value: string): string {
   if (switched) {
     const reasons = switched[2].split('；').map((item) => {
       // 有些原因含空白（例如三分鐘逾時），從模型名稱後找完整片語。
-      const suffix = ['這一分鐘的次數已滿', '今日額度已用完', '超過 3 分鐘沒有回應', '暫時太多人使用', '無法使用'].find((why) => item.endsWith(' ' + why))
+      const suffix = ['這一分鐘的次數已滿', '今日額度已用完', '超過 3 分鐘沒有回應', '暫時太多人使用', '不支援這次查核的格式', '無法使用'].find((why) => item.endsWith(' ' + why))
       return suffix ? `${item.slice(0, -suffix.length)}${checkMessage(t, suffix)}` : item
     }).join(t('；', '; ', '、', ', '))
     const model = switched[1]
