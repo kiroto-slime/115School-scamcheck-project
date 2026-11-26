@@ -1,0 +1,9 @@
+User-agent: *
+Disallow: /api/
+
+# 這些頁面由 HTTP 標頭與 HTML 指定 noindex。爬蟲需能讀取該指示。
+Allow: /admin
+Allow: /result
+Allow: /history
+
+Sitemap: https://scamcheck.slimebvs.net/sitemap.xml

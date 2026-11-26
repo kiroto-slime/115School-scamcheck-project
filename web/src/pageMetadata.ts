@@ -107,6 +107,7 @@ export function pageMetadata(pathname: string, select: (...copy: Copy) => string
   const key = path.startsWith('/result/') ? '/result' : path
   const page = Object.hasOwn(pages, key) ? pages[key] : missing
   return {
+    heading: select(...page.title),
     title: select(...page.title) + '｜' + select(...brand),
     description: select(...page.description),
     robots: page.private ? 'noindex, nofollow' : 'index, follow',

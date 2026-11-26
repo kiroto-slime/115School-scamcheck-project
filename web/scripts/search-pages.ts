@@ -1,5 +1,5 @@
 import type { Plugin } from 'vite'
-import { pageHead, pagePaths, publicPagePaths, SITE_ORIGIN } from '../src/pageMetadata'
+import { pageHead, pageMetadata, pagePaths, publicPagePaths, SITE_ORIGIN } from '../src/pageMetadata'
 
 const marker = '<!-- route-head -->'
 const escapeHtml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -12,7 +12,17 @@ function renderPage(template: string, path: string) {
       ? `<title data-page-head>${escapeHtml(text!)}</title>`
       : `<${tag} data-page-head${attributes}>`
   })
-  return template.replace(marker, head.join('\n    '))
+  const html = template.replace(marker, head.join('\n    '))
+  if (!publicPagePaths.includes(path)) return html
+
+  // 直接開啟公開網址時先提供可閱讀的摘要；互動介面載入後會接手同一個根節點。
+  const page = pageMetadata(path)
+  const destinations = path === '/' ? publicPagePaths.filter(item => item !== '/') : ['/']
+  const links = destinations.map(item => {
+    const label = item === '/' ? '識詐數據庫首頁' : pageMetadata(item).heading
+    return `<li><a href="${escapeHtml(item)}">${escapeHtml(label)}</a></li>`
+  }).join('')
+  return html.replace('<!-- route-intro -->', `<main><h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(page.description)}</p><nav aria-label="網站導覽"><ul>${links}</ul></nav></main>`)
 }
 
 export function searchPages(): Plugin {
@@ -38,7 +48,6 @@ export function searchPages(): Plugin {
         }
         const entries = publicPagePaths.map(path => `  <url><loc>${SITE_ORIGIN}${path}</loc></url>`).join('\n')
         this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</urlset>\n` })
-        this.emitFile({ type: 'asset', fileName: 'robots.txt', source: `User-agent: *\nDisallow: /api/\nSitemap: ${SITE_ORIGIN}/sitemap.xml\n` })
       },
     },
   }
