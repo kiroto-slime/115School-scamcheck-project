@@ -408,21 +408,35 @@ test('站內問答依入口回覆，手機可切換小球，問題只在當頁�
     const close = page.getByRole('button', { name: '關閉選單' })
     if (await close.isVisible()) await close.click()
   }
+  const reading = (await page.locator('.reading-toggle').boundingBox())!
+  const ball = (await orb.boundingBox())!
+  expect(ball.width).toBeGreaterThanOrEqual(reading.width * 1.5)
+  expect(ball.height).toBe(ball.width)
+  expect(ball.x + ball.width).toBeLessThan(reading.x)
   await orb.click()
   const panel = page.getByRole('dialog', { name: '客服問答' })
   await panel.getByRole('button', { name: '這個網站怎麼用？' }).click()
   await expect(panel.getByRole('log')).toContainText('結果會列出')
+  await panel.getByRole('textbox').fill('who are you')
+  await panel.getByRole('textbox').press('Enter')
+  await expect(panel.getByRole('log')).toContainText('防詐小知識：')
   await panel.getByRole('button', { name: '關閉客服問答' }).click()
-  const input = page.getByRole('textbox', { name: '輸入問題' })
+  const input = page.getByRole('textbox', { name: '輸入訊息' })
   const marker = '這個網站怎麼用？測試字串742'
   const requests: string[] = []
   page.on('request', request => requests.push(request.url() + (request.postData() ?? '')))
   await input.fill(marker)
   await input.press('Enter')
-  await expect(page.getByRole('log')).toContainText('這題目前沒有收錄')
-  await input.fill('有人跟我要驗證碼')
-  await input.press('Enter')
-  await expect(page.getByRole('log')).toContainText('驗證碼先留給自己')
+  const replies = page.locator('.chat-answer')
+  await expect(replies.last()).toContainText('防詐小知識：')
+  for (const message of ['888', '你是啥', 'who are you']) {
+    await input.fill(message)
+    await input.press('Enter')
+  }
+  await expect(replies).toHaveCount(4)
+  const tips = await replies.allTextContents()
+  expect(tips.every(tip => tip.includes('防詐小知識：'))).toBe(true)
+  expect(new Set(tips).size).toBe(4)
   await input.fill('<b>這是一段純文字</b>')
   await input.press('Enter')
   await expect(page.getByRole('log')).toContainText('<b>這是一段純文字</b>')

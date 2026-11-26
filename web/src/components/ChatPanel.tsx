@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useId, useRef, useState } from 'react'
-import { answerQuestion, siteQuestion, tipQuestion, type ChatScope } from '../chatAnswers'
+import { answerQuestion, createTipPicker, siteQuestion, tipQuestion, type ChatScope } from '../chatAnswers'
 import './chat.css'
 
 export function ChatPanel({ scope, onClose }: { scope: ChatScope; onClose?: () => void }) {
   const [turns, setTurns] = useState<{ question: string; reply: string }[]>([])
   const [draft, setDraft] = useState('')
+  const [pickTip] = useState(createTipPicker)
   const log = useRef<HTMLDivElement>(null)
   const title = useId()
   const hint = useId()
@@ -13,7 +14,7 @@ export function ChatPanel({ scope, onClose }: { scope: ChatScope; onClose?: () =
   const send = (value: string) => {
     const question = value.trim()
     if (!question) return
-    const reply = answerQuestion(question, scope)
+    const reply = answerQuestion(question, scope, pickTip)
     setTurns(previous => [...previous, { question, reply }])
     setDraft('')
   }
@@ -30,8 +31,8 @@ export function ChatPanel({ scope, onClose }: { scope: ChatScope; onClose?: () =
       </header>
       <div className="chat-scroll" ref={log}>
         {turns.length === 0 && <div className="chat-starters">
-          {!support && <p>想了解哪種詐騙手法？</p>}
-          <div>{(support ? [siteQuestion, tipQuestion] : ['驗證碼可以給客服嗎？', '朋友借錢怎麼確認？', tipQuestion]).map(q =>
+          {!support && <p>每送出一則訊息，就抽一則防詐小知識。</p>}
+          <div>{(support ? [siteQuestion, tipQuestion] : [tipQuestion]).map(q =>
             <button key={q} type="button" onClick={() => send(q)}>{q}</button>)}</div>
         </div>}
         <div role="log" aria-label="問答內容" aria-live="polite" className="chat-log">
@@ -43,7 +44,7 @@ export function ChatPanel({ scope, onClose }: { scope: ChatScope; onClose?: () =
       </div>
       <form className="chat-form" onSubmit={event => { event.preventDefault(); send(draft) }}>
         <div className="chat-entry">
-          <input className="input" aria-label="輸入問題" aria-describedby={hint} placeholder="輸入問題…"
+          <input className="input" aria-label={support ? '輸入問題' : '輸入訊息'} aria-describedby={hint} placeholder={support ? '輸入問題…' : '輸入訊息，抽一則提醒…'}
             value={draft} onChange={event => setDraft(event.target.value)} autoComplete="off" spellCheck={false} maxLength={500}
             onKeyDown={event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault() }} />
           <button type="submit" disabled={!draft.trim()} aria-label="送出問題" title="送出問題">
