@@ -27,6 +27,18 @@ describe('管理頁額度校準', () => {
     expect((await call(path + '/settings', { headers, method: 'PUT', body: { interval_minutes: 45, auto_enabled: false } })).json.interval_minutes).toBe(45)
   })
 
+  it('手動更新回傳該次設定錯誤的操作提示，公開狀態不含診斷或設定值', async () => {
+    const headers = await adminHeaders()
+    const envOverride = { ...configured, GOOGLE_MONITORING_PROJECT_ID: 'wrong/project', GEMINI_API_KEY: 'local-test' }
+    const result = await call(path + '/refresh', { method: 'POST', headers, envOverride })
+    expect(result.status).toBe(200)
+    expect(result.json).toMatchObject({ status: 'error', message: expect.stringContaining('專案 ID') })
+    expect(JSON.stringify(result.json)).not.toContain(envOverride.GOOGLE_MONITORING_PROJECT_ID)
+    const health = await call('/api/health', { envOverride })
+    expect(health.json.modes.ai_quota_sync).not.toHaveProperty('message')
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
+
   it('停用時仍能手動讀取，啟用 45 分鐘後只在到期時執行', async () => {
     const reader = vi.fn(read)
     await refreshQuota(configured, models, 'auto', at(0), reader)

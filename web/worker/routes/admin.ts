@@ -35,8 +35,9 @@ guarded.use('*', requireAdmin)
 guarded.get('/ai/quota', async (c) => c.json(await adminQuota(c.env, c.get('settings').gemini_models)))
 guarded.post('/ai/quota/refresh', async (c) => {
   const models = c.get('settings').gemini_models
-  await refreshQuota(c.env, models, 'manual')
-  return c.json(await adminQuota(c.env, models))
+  const message = await refreshQuota(c.env, models, 'manual')
+  const state = await adminQuota(c.env, models)
+  return c.json({ ...state, message: state.status === 'error' ? message : undefined })
 })
 guarded.put('/ai/quota/settings', async (c) => {
   const b = await readBody(c, z.object({

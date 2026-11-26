@@ -23,12 +23,29 @@ const metric = 'generativelanguage.googleapis.com/quota/generate_content_free_ti
 const intervalMs = 5 * 60_000
 const incomplete = () => new MonitoringError('Google 監控資料不完整，請稍後再更新。')
 
-async function authorizedJson(response: Response) {
-  if (response.ok) return response.json()
-  if ([400, 401, 403].includes(response.status)) {
-    throw new MonitoringError('無法讀取 Google 監控，請確認專案、監控 API 和服務帳戶的唯讀權限。')
+async function authorizedJson(request: Promise<Response>, stage: '服務帳戶授權' | '用量查詢') {
+  let response: Response
+  try {
+    response = await request
+  } catch {
+    throw new MonitoringError(`Google ${stage}連線失敗或逾時，請稍後再更新。`)
   }
-  throw new MonitoringError('Google 監控暫時無法回應，請稍後再更新。')
+  if (!response.ok) {
+    let action = '請稍後再更新。'
+    if (stage === '服務帳戶授權' && [400, 401, 403].includes(response.status)) {
+      action = '請核對 Worker 的服務帳戶電子郵件和私鑰是否來自同一份有效的金鑰檔。'
+    } else if (stage === '用量查詢' && response.status === 400) {
+      action = '請檢查網站送出的監控查詢參數。'
+    } else if (stage === '用量查詢' && [401, 403].includes(response.status)) {
+      action = '請確認目標專案已啟用 Cloud Monitoring API，並已授予此服務帳戶監控讀取權限。'
+    }
+    throw new MonitoringError(`Google ${stage}失敗（HTTP ${response.status}）。${action}`)
+  }
+  try {
+    return await response.json()
+  } catch {
+    throw new MonitoringError(`無法讀取 Google ${stage}的回應，請稍後再更新。`)
+  }
 }
 
 async function getAccessToken(env: MonitoringSecrets, fetcher: typeof fetch, signal: AbortSignal): Promise<string> {
@@ -50,7 +67,7 @@ async function getAccessToken(env: MonitoringSecrets, fetcher: typeof fetch, sig
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(signed))
   const signature64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
   const body = new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: signed + '.' + signature64 })
-  const data = await authorizedJson(await fetcher(oauthUrl, { method: 'POST', body, redirect: 'error', signal })) as { access_token?: string }
+  const data = await authorizedJson(fetcher(oauthUrl, { method: 'POST', body, redirect: 'manual', signal }), '服務帳戶授權') as { access_token?: string }
   if (typeof data.access_token !== 'string' || !data.access_token) throw new MonitoringError('Google 未核發監控權杖，請確認服務帳戶的授權。')
   return data.access_token
 }
@@ -66,6 +83,7 @@ function seriesQuery(project: string, ids: string[], kind: 'usage' | 'limit', st
   const modelClause = ids.map(id => 'metric.labels.model = "' + id + '"').join(' OR ')
   url.search = new URLSearchParams({
     filter: `project = "${project}" AND metric.type = "${metric}/${kind}" AND metric.labels.limit_name = "${dailyLimit}" AND (${modelClause})`,
+    view: 'FULL',
     'interval.startTime': new Date(start).toISOString(), 'interval.endTime': new Date(end).toISOString(),
     'aggregation.alignmentPeriod': '300s',
     'aggregation.perSeriesAligner': kind === 'usage' ? 'ALIGN_SUM' : 'ALIGN_NEXT_OLDER',
@@ -81,8 +99,8 @@ function seriesQuery(project: string, ids: string[], kind: 'usage' | 'limit', st
 async function readSeries(url: URL, token: string, fetcher: typeof fetch, signal: AbortSignal,
   consume: (series: Series) => void) {
   for (let page = 0; page < 8; page++) {
-    const response = await fetcher(url.toString(), { headers: { Authorization: 'Bearer ' + token }, redirect: 'error', signal })
-    const data = await authorizedJson(response) as SeriesPage
+    const request = fetcher(url.toString(), { headers: { Authorization: 'Bearer ' + token }, redirect: 'manual', signal })
+    const data = await authorizedJson(request, '用量查詢') as SeriesPage
     if (data.executionErrors?.length || (data.timeSeries !== undefined && !Array.isArray(data.timeSeries))) throw incomplete()
     for (const series of data.timeSeries ?? []) consume(series)
     if (!data.nextPageToken) return

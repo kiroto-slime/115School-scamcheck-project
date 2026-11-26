@@ -101,7 +101,7 @@ export function AdminAiQuota({ call }: { call: Call }) {
       </details>}
       <a className="link inline-flex min-h-11 items-center" href="https://aistudio.google.com/rate-limit" target="_blank" rel="noopener noreferrer">在 Google AI Studio 查看額度</a>
       {quota.attempted_at && quota.attempted_at !== quota.checked_at && <p className="text-sm">最近查詢於 <time dateTime={quota.attempted_at}>{formatTime(quota.attempted_at)}</time></p>}
-      {quota.status === 'error' && <Alert kind="warn">{quota.message || '讀取 Google 用量失敗，請檢查監控授權後再試一次。'}</Alert>}
+      {quota.status === 'error' && <Alert kind="warn">{quota.message || '上次額度校準未完成。按「立即更新」可查看這次的查詢結果。'}</Alert>}
       {quota.status === 'partial' && <p className="text-sm">{quota.message || '僅部分模型有可核對的用量。缺少資料的模型會繼續顯示本站估計。'}</p>}
       {quota.models.length > 0 ? <div className="space-y-1">
         {quota.checked_at && <p className="text-sm font-medium">上次取得用量於 <time dateTime={quota.checked_at}>{formatTime(quota.checked_at)}</time></p>}

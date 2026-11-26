@@ -24,12 +24,14 @@ describe('Google 免費模型每日監控', () => {
     const fetcher: typeof fetch = async (input, init) => {
       const url = new URL(String(input))
       if (url.hostname === 'oauth2.googleapis.com') {
+        expect(new Request(input, init).headers.get('content-type')).toMatch(/^application\/x-www-form-urlencoded/i)
         const jwt = new URLSearchParams(String(init?.body)).get('assertion')!
         expect(JSON.parse(atob(jwt.split('.')[1].replaceAll('-', '+').replaceAll('_', '/'))).scope)
           .toBe('https://www.googleapis.com/auth/monitoring.read')
         return Response.json({ access_token: 'temporary-test-token' })
       }
       expect(url.hostname).toBe('monitoring.googleapis.com')
+      expect(url.searchParams.get('view')).toBe('FULL')
       expect(url.searchParams.get('filter')).toContain('example-quota')
       expect(url.searchParams.get('filter')).toContain('GenerateRequestsPerDayPerProjectPerModel-FreeTier')
       if (url.searchParams.get('filter')?.includes('/limit"')) return Response.json({ timeSeries: [series('a-1', 20), series('b-2', 50)] })
@@ -59,7 +61,51 @@ describe('Google 免費模型每日監控', () => {
       ? Response.json({ access_token: 'temporary-test-token' })
       : Response.json({ executionErrors: [{ message: 'private upstream detail' }], timeSeries: [] })
     await expect(readGoogleQuota(credentials, ['a-1'], now, fetcher)).rejects.toThrow(/監控/)
-    const denied: typeof fetch = async () => new Response('private upstream detail', { status: 403 })
-    await expect(readGoogleQuota(credentials, ['a-1'], now, denied)).rejects.toThrow(/授權|權限/)
+  })
+
+  it.each([
+    ['授權', 400, /授權.*400.*私鑰/],
+    ['監控', 400, /用量查詢.*400.*參數/],
+    ['監控', 403, /用量查詢.*403.*權限/],
+  ] as const)('%s 階段的 HTTP %i 只顯示安全提示', async (stage, status, expected) => {
+    const fetcher: typeof fetch = async input => {
+      if (stage === '監控' && String(input).includes('oauth2.googleapis.com')) {
+        return Response.json({ access_token: 'temporary-test-token' })
+      }
+      return new Response('private upstream detail', { status })
+    }
+    const request = readGoogleQuota(credentials, ['a-1'], now, fetcher)
+    await expect(request).rejects.toThrow(expected)
+    await expect(request).rejects.not.toThrow('private upstream detail')
+  })
+
+  it.each(['服務帳戶授權', '用量查詢'])('%s 連線中斷時會標出失敗階段', async stage => {
+    const fetcher: typeof fetch = async input => {
+      if (stage === '用量查詢' && String(input).includes('oauth2.googleapis.com')) {
+        return Response.json({ access_token: 'temporary-test-token' })
+      }
+      throw Error('private upstream detail')
+    }
+    const request = readGoogleQuota(credentials, ['a-1'], now, fetcher)
+    await expect(request).rejects.toThrow(stage)
+    await expect(request).rejects.not.toThrow('private upstream detail')
+  })
+
+  it.each(['服務帳戶授權', '用量查詢'])('%s 遇到重新導向就停止，憑證只送往原本的服務', async stage => {
+    const calls: Request[] = []
+    const fetcher: typeof fetch = async (input, init) => {
+      const req = new Request(input, init)
+      calls.push(req)
+      if (stage === '用量查詢' && new URL(req.url).hostname === 'oauth2.googleapis.com') {
+        return Response.json({ access_token: 'temporary-test-token' })
+      }
+      return Response.redirect('https://example.invalid/', 307)
+    }
+    await expect(readGoogleQuota(credentials, ['a-1'], now, fetcher)).rejects.toThrow('HTTP 307')
+    expect(calls.length).toBeGreaterThan(0)
+    for (const req of calls) {
+      expect(req.redirect).toBe('manual')
+      expect(['oauth2.googleapis.com', 'monitoring.googleapis.com']).toContain(new URL(req.url).hostname)
+    }
   })
 })

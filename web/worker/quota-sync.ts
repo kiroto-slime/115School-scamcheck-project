@@ -1,5 +1,5 @@
 import { googleDay, type ModelConf, type ModelState } from './aimodels'
-import { monitoringConfigured, readGoogleQuota } from './google-monitoring'
+import { MonitoringError, monitoringConfigured, readGoogleQuota } from './google-monitoring'
 import { HttpError, parseJson } from './util'
 
 const minute = 60_000
@@ -108,8 +108,11 @@ export async function refreshQuota(env: Env, configs: ModelConf[], mode: 'manual
     } else {
       await env.DB.prepare("UPDATE ai_quota_sync SET outcome='partial', lease_id=NULL, lease_until=0 WHERE id=1 AND lease_id=?").bind(lease).run()
     }
-  } catch {
+  } catch (error) {
     await env.DB.prepare("UPDATE ai_quota_sync SET outcome='error', lease_id=NULL, lease_until=0 WHERE id=1 AND lease_id=?").bind(lease).run()
+    if (mode === 'manual') {
+      return error instanceof MonitoringError ? error.message : '網站未能完成額度校準，請稍後重試。'
+    }
   }
 }
 
