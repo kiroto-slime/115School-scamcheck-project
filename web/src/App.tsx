@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
-import { ModeBanner } from './components/ui'
 import { FloatingTools } from './components/FloatingTools'
 import { AccentMenu } from './components/AccentMenu'
 import { Navigation } from './components/Navigation'
@@ -51,6 +50,14 @@ export default function App() {
   return <LanguageProvider><Site /></LanguageProvider>
 }
 
+const portraitNav = '(max-width: 767px) and (orientation: portrait)'
+const landscapeNav = '(max-width: 1180px) and (max-height: 600px) and (orientation: landscape)'
+
+function navigationLayout() {
+  if (window.matchMedia(portraitNav).matches) return 'portrait'
+  return window.matchMedia(landscapeNav).matches ? 'landscape' : 'standard'
+}
+
 function Site() {
   const { lang, t } = useLanguage()
   const [open, setOpen] = useState(false)
@@ -62,7 +69,7 @@ function Site() {
     try { localStorage.setItem('mobileSupportBall', ballEnabled ? 'off' : 'on') } catch { /* 此次使用仍可切換。 */ }
   }
   const [pinnedChoice, setPinnedChoice] = useState<boolean | null>(null)
-  const [landscape, setLandscape] = useState(() => window.matchMedia('(orientation: landscape) and (max-width: 1180px) and (max-height: 600px)').matches)
+  const [layout, setLayout] = useState(navigationLayout)
   const [peek, setPeek] = useState(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout>>()
   const edgeHandle = useRef<HTMLButtonElement>(null)
@@ -84,7 +91,7 @@ function Site() {
     document.head.querySelectorAll('[data-page-head]').forEach(element => element.remove())
     document.head.append(fragment)
   }, [loc.pathname, t])
-  const pinned = pinnedChoice ?? !(landscape && loc.pathname === '/game')
+  const pinned = layout === 'portrait' || (pinnedChoice ?? !(layout === 'landscape' && loc.pathname === '/game'))
   const cancelClose = () => {
     if (closeTimer.current) clearTimeout(closeTimer.current)
   }
@@ -99,10 +106,13 @@ function Site() {
     closeTimer.current = setTimeout(() => closePeek(), 250)
   }
   useEffect(() => {
-    const query = window.matchMedia('(orientation: landscape) and (max-width: 1180px) and (max-height: 600px)')
-    const update = () => { setLandscape(query.matches); setPeek(false) }
-    query.addEventListener('change', update)
-    return () => { query.removeEventListener('change', update); cancelClose() }
+    const queries = [portraitNav, landscapeNav].map(query => window.matchMedia(query))
+    const update = () => { setLayout(navigationLayout()); setOpen(false); setPeek(false) }
+    for (const query of queries) query.addEventListener('change', update)
+    return () => {
+      for (const query of queries) query.removeEventListener('change', update)
+      cancelClose()
+    }
   }, [])
   useEffect(() => {
     if (!peek) {
@@ -197,7 +207,6 @@ function Site() {
 
         <div className="content-column flex min-w-0 flex-1 flex-col">
           <main className="main-content space-y-5">
-            <ModeBanner />
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/guides/parcel-message" element={<ParcelGuide />} />

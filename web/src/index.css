@@ -208,6 +208,14 @@ summary:focus-visible { border-radius: 8px; }
   .main-content { padding-left: 20px; padding-right: 24px; }
   .nav-item { width: 192px; }
 }
+@media (max-width: 767px) and (orientation: portrait) {
+  .header-button.sidebar-toggle { display: none; }
+}
+.game-touch-hint { display: none; }
+@media (pointer: coarse) {
+  .game-keyboard-hint { display: none; }
+  .game-touch-hint { display: block; }
+}
 @media (max-width: 767px) {
   .topbar-content { padding: 8px 16px; gap: 8px; }
   .brand { gap: 9px; }

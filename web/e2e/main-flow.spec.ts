@@ -126,14 +126,13 @@ test('導覽列可常駐或自動隱藏，橫向遊戲取消左側占位', async
   await noHorizontalOverflow(page)
 
   await page.setViewportSize({ width: 375, height: 812 })
-  await page.reload()
+  await expect(page.locator('.sidebar-toggle')).toBeHidden()
+  await expect(handle).toBeHidden()
   await page.getByRole('button', { name: '開啟選單', exact: true }).click()
   await expect(page.locator('.mobile-nav')).toBeVisible()
-  await page.getByRole('button', { name: '將導覽列設為自動隱藏', exact: true }).click()
+  await page.locator('.mobile-nav').getByRole('link', { name: '查核紀錄', exact: true }).click()
   await expect(page.locator('.mobile-nav')).toBeHidden()
-  await handle.click()
-  await expect(panel).toBeVisible()
-  await panel.getByRole('link', { name: '查核紀錄', exact: true }).click()
+  await expect(page).toHaveURL(/\/history$/)
   await expect(panel).toBeHidden()
   await noHorizontalOverflow(page)
 

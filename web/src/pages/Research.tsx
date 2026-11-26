@@ -4,7 +4,7 @@ import { riskLabel, useLanguage } from '../language'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, postJson, researchId, type Feature } from '../api'
-import { Alert, Section, Spinner, useHealth } from '../components/ui'
+import { Alert, Section, ServiceConnectionError, Spinner, useHealth } from '../components/ui'
 
 interface Case { case_id: string; title: string; simulated_content: string; reviewer_status: string }
 interface StartRes { research_id: string; is_demo: boolean; pre_case: Case; post_case: Case; warnings: string[] }
@@ -67,7 +67,7 @@ function Question({ c, phase, onSubmit, busy }: { c: Case; phase: string; onSubm
 
 export default function Research() {
   const { lang, t } = useLanguage()
-  const { health } = useHealth()
+  const { health, error: healthError } = useHealth()
   const [step, setStep] = useState<Step>('intro')
   const [b, setB] = useState(false)
   const [c, setC] = useState(false)
@@ -118,6 +118,14 @@ export default function Research() {
   return (
     <div className="space-y-4">
       <h1>{t("匿名研究測驗", "Anonymous research quiz", "匿名研究テスト", "익명 연구 퀴즈")}</h1>
+      {healthError && !health && <ServiceConnectionError />}
+      {step === 'intro' && health && (
+        <p><span className={`pill ${health.modes.research_mode === 'formal' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
+          {health.modes.research_mode === 'formal'
+            ? t('前後測研究：正式', 'Research quiz: live', '事前・事後テスト：本調査', '사전·사후 검사: 본조사')
+            : t('前後測研究：模擬（DEMO）', 'Research quiz: demo', '事前・事後テスト：デモ', '사전·사후 검사: 데모')}
+        </span></p>
+      )}
       {lang !== 'zh-Hant' && <p className="text-sm text-slate-600">{t('研究案例和研究團隊撰寫的解析以原文顯示。', 'Study cases and explanations written by the research team appear in their original language.', '研究事例と研究チームによる解説は原文で表示します。', '연구 사례와 연구팀이 작성한 해설은 원문으로 표시됩니다.')}</p>}
       {step !== 'intro' && (
         <div className="h-2 w-full rounded-full bg-slate-200" role="progressbar" aria-label={t('測驗進度', 'Quiz progress', 'テストの進み具合', '퀴즈 진행 상황')} aria-valuemin={0} aria-valuemax={4} aria-valuenow={progress}>
@@ -163,11 +171,11 @@ export default function Research() {
             )}</li>
             <li><strong>{t("撤回：", "Withdrawal. ", "撤回：", "철회: ")}</strong>{t("可在 ", "Visit ", "", "")}<Link to="/privacy">{t("隱私與研究說明", "Privacy and research", "プライバシーと研究について", "개인정보 및 연구 안내")}</Link>{t(" 用研究編號撤回或刪除資料。", " to withdraw or delete data using your research ID.", "で研究IDを使い、撤回・削除できます。", "에서 연구 ID로 참여를 철회하거나 자료를 삭제할 수 있습니다.")}</li>
             <li>{t(
-              '未滿 18 歲參與者，正式研究需經學校審查及法定代理人同意；目前為 ',
-              'For participants under 18, the formal study requires school review and the consent of a legal guardian. Current mode: ',
-              '18歳未満の方が正式な研究に参加するには、学校の審査と法定代理人の同意が必要です。現在のモード：',
-              '만 18세 미만이 정식 연구에 참여하려면 학교 심사와 법정 대리인의 동의가 필요합니다. 현재 모드: ',
-            )}{health?.modes.research_mode === 'formal' ? t('正式', 'Formal study', '正式研究', '정식 연구') : t('模擬（DEMO）', 'Simulation (DEMO)', '模擬研究（DEMO）', '모의 연구(DEMO)')}{t(' 模式。', '.', '。', '.')}</li>
+              '未滿 18 歲參與者，正式研究需經學校審查及法定代理人同意。',
+              'For participants under 18, the formal study requires school review and the consent of a legal guardian.',
+              '18歳未満の方が正式な研究に参加するには、学校の審査と法定代理人の同意が必要です。',
+              '만 18세 미만이 정식 연구에 참여하려면 학교 심사와 법정 대리인의 동의가 필요합니다.',
+            )}</li>
           </ul>
           <label className="flex min-h-11 items-start gap-3">
             <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={b} onChange={(e) => { setB(e.target.checked); if (!e.target.checked) setC(false) }} />

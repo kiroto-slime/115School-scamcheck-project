@@ -6,7 +6,7 @@ import { api, ApiError, consentRecorded, currentAiModel, postJson, researchId, r
 import { prepareImage, videoMime } from '../media'
 import { NaughtyButton } from '../components/NaughtyButton'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
-import { Alert, refreshHealth, Spinner, useHealth } from '../components/ui'
+import { Alert, refreshHealth, ServiceConnectionError, Spinner, useHealth } from '../components/ui'
 
 type Mode = 'text' | 'image' | 'video'
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -55,7 +55,7 @@ function clearDraft() {
 export default function Check() {
   const { t } = useLanguage()
   const message = (value: string) => checkMessage(t, value)
-  const { health } = useHealth()
+  const { health, error: healthError } = useHealth()
   const limits = health?.limits ?? { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 }
   const nav = useNavigate()
   // 草稿存在 sessionStorage：重新整理還在，關掉分頁就清除（不上傳）
@@ -276,6 +276,7 @@ export default function Check() {
   return (
     <form className="check-form space-y-5" onSubmit={submit} noValidate>
       <h1>{t('防詐查核', 'Scam check', '詐欺チェック', '사기 확인')}</h1>
+      {healthError && !health && <ServiceConnectionError />}
       <div className="card check-workbench space-y-5">
       <div className="input-tabs" role="tablist" aria-label={t('輸入類型', 'Input type', '入力の種類', '입력 유형')}>
         {tabs.map(([m, label]) => (
@@ -364,6 +365,7 @@ export default function Check() {
         <details className="setting-disclosure" id="service-settings">
           <summary><span className="disclosure-label">{t('查核設定', 'Check settings', 'チェック設定', '확인 설정')}<span className="disclosure-hint">{t('服務與 AI 模型', 'Services and AI model', 'サービスとAIモデル', '서비스와 AI 모델')}</span></span></summary>
           <div className="disclosure-content">
+            {health && !aiAvailable && <p className="text-sm">{t('AI 分析未啟用。查核圖片或影片時，請手動輸入文字。', 'AI analysis is unavailable. Enter text for images or videos.', 'AI分析は利用できません。画像や動画の内容をテキストで入力してください。', 'AI 분석을 사용할 수 없습니다. 이미지나 영상의 내용을 글로 입력해 주세요.')}</p>}
         <ServiceOptions options={([
           cofactsAvailable && { key: 'cofacts', label: t('送至 Cofacts 比對', 'Compare with Cofacts', 'Cofactsと照合', 'Cofacts와 대조'), sends: ['文字'], to: t('Cofacts「真的假的」查核資料庫', 'Cofacts fact-check database', 'Cofactsのファクトチェックデータベース', 'Cofacts 팩트체크 데이터베이스'), checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
           aiAvailable && { key: 'ai', label: t('使用 Gemini AI 分析', 'Analyze with Gemini AI', 'Gemini AIで分析', 'Gemini AI로 분석'), sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: t('Google Gemini（請勿上傳他人隱私）', 'Google Gemini (do not upload other people’s private information)', 'Google Gemini（他人の個人情報をアップロードしないでください）', 'Google Gemini(타인의 개인정보를 올리지 마세요)'), checked: useAi, onChange: setUseAi,
@@ -395,12 +397,14 @@ export default function Check() {
         <details className="setting-disclosure" id="research-consent" open>
           <summary><span className="disclosure-label">{t('參與匿名研究（選填）', 'Take part in anonymous research (optional)', '匿名研究に参加する（任意）', '익명 연구 참여(선택)')}</span></summary>
           <div className="disclosure-content space-y-3">
-        <label className="consent-row">
-          <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={consentB}
+        <p className="text-sm font-medium">{t('不參與研究也能使用查核服務。', 'You can use the check without taking part in research.', '研究に参加しなくてもチェックを利用できます。', '연구에 참여하지 않아도 확인 서비스를 이용할 수 있습니다.')}</p>
+        <label className="consent-row" htmlFor="school-research">
+          <input type="checkbox" id="school-research" aria-labelledby="school-research-title" aria-describedby="school-research-choice school-research-retention" className="mt-1 h-5 w-5 shrink-0" checked={consentB}
             onChange={(e) => { setConsentB(e.target.checked); if (!e.target.checked) setConsentC(false) }} />
           <span className="min-w-0 text-sm">
-            <span className="block font-medium">{t('協助校內研究（選填）', 'Support school research (optional)', '校内研究に協力する（任意）', '교내 연구 참여(선택)')}</span>
-            <span className="mt-1 block text-xs text-slate-500">{t(`同意後會保存這次已遮蔽個資的訊息內容與可疑網址及分析結果，供校內防詐研究，保存至 ${retentionText} 後刪除。取消勾選則不保存內容。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。`, `If you agree, we keep the message and suspicious URLs with personal details masked, along with the results, for school fraud-prevention research. We delete them after ${retentionText}. Uncheck this box to keep the content from being stored. Automatic masking can miss details. Please leave out other people’s personal information.`, `同意すると、個人情報を伏せたメッセージと不審なURL、分析結果を校内の詐欺防止研究のために保存し、${retentionText}を過ぎたら削除します。チェックを外すと内容は保存しません。自動処理では個人情報が残る場合があるため、他人の個人情報を入力しないでください。`, `동의하면 개인정보를 가린 메시지와 의심스러운 URL, 분석 결과를 교내 사기 예방 연구를 위해 보관하고 ${retentionText} 이후 삭제합니다. 선택을 해제하면 내용을 보관하지 않습니다. 자동 처리로 개인정보가 남을 수 있으니 타인의 개인정보는 입력하지 마세요.`)}</span>
+            <span className="block font-medium" id="school-research-title">{t('協助校內研究（選填）', 'Support school research (optional)', '校内研究に協力する（任意）', '교내 연구 참여(선택)')}</span>
+            <span className="mt-1 block" id="school-research-choice">{t('勾選後，校內研究會保存已遮蔽個資的訊息內容與可疑網址，以及這次的分析結果。取消勾選也能查核，訊息內容與網址不會存入研究資料。', 'Select to save the redacted message, suspicious URLs and analysis results. You can still run the check with the box cleared. The message and URLs will then be excluded from the research records.', '選択すると、個人情報を伏せたメッセージ、不審なURL、分析結果を保存します。選択を外してもチェックでき、メッセージとURLは研究資料に保存されません。', '선택하면 개인정보를 가린 메시지와 의심스러운 URL, 분석 결과를 저장합니다. 선택을 해제해도 확인할 수 있으며 메시지와 URL은 연구 자료에 저장되지 않습니다.')}</span>
+            <span className="mt-1 block text-xs text-slate-500" id="school-research-retention">{t(`研究用文字與網址保存至 ${retentionText} 後刪除。自動遮蔽可能遺漏個資，請勿填寫他人的個人資料。`, `Research text and URLs are deleted after ${retentionText}. Automatic masking can miss details. Please leave out other people’s personal information.`, `研究用の文章とURLは${retentionText}を過ぎたら削除します。自動処理で個人情報が残ることがあるため、他人の個人情報は入力しないでください。`, `연구용 메시지와 URL은 ${retentionText} 이후 삭제합니다. 자동 처리로 개인정보가 남을 수 있으니 타인의 개인정보를 입력하지 마세요.`)}</span>
           </span>
         </label>
         <label className="consent-row">
@@ -411,7 +415,6 @@ export default function Check() {
           </span>
         </label>
         {wasWithdrawn && !consentB && <p className="text-xs text-slate-500">{t('你先前已撤回研究同意，如要再次參與請自行勾選。', 'You previously withdrew consent. Select this option yourself if you want to take part again.', '以前に研究への同意を撤回しています。再び参加する場合はご自身で選択してください。', '이전에 연구 동의를 철회했습니다. 다시 참여하려면 직접 선택하세요.')}</p>}
-        <p className="text-xs text-slate-500">{t('不參與研究也能使用查核服務。', 'You can use the check without taking part in research.', '研究に参加しなくてもチェックを利用できます。', '연구에 참여하지 않아도 확인 서비스를 이용할 수 있습니다.')}</p>
           </div>
         </details>
       </fieldset>

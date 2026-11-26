@@ -4,13 +4,12 @@ export default function Game() {
   return (
     <section className="space-y-4">
       <h1>{t("小方塊跑酷", "Block Parkour", "ブロックパルクール", "블록 파쿠르")}</h1>
-      <p>{t(
-        "電腦使用 ← →／A D 移動，空白鍵／↑／W 跳躍；手機使用遊戲內的左右與跳躍按鈕。空中再按一次可二段跳，放開跳躍鍵可小跳。往右跑會消耗能量，能量用完生命會慢慢流失；吃 🍎 可補一點能量。",
-        "On a computer, move with ← → or A/D and jump with Space, ↑ or W. On a phone, use the on-screen buttons. Jump again in midair for a double jump, or release early for a short hop. Running right uses energy. When it runs out, you gradually lose health. Eat 🍎 to regain some energy.",
-        "パソコンでは ← → または A・D で移動し、スペース・↑・W のいずれかでジャンプします。スマートフォンでは画面の左右・ジャンプボタンを使います。空中でもう一度押すと二段ジャンプ、早めに離すと小さく跳べます。右へ走るとエネルギーを消費し、尽きると体力が少しずつ減ります。🍎 を取るとエネルギーが少し回復します。",
-        "컴퓨터에서는 ← → 또는 A/D로 이동하고 스페이스바, ↑ 또는 W로 점프하세요. 휴대전화에서는 화면의 좌우 이동 버튼과 점프 버튼을 사용하세요. 공중에서 한 번 더 누르면 이단 점프를 하고, 일찍 떼면 낮게 뜁니다. 오른쪽으로 달리면 에너지가 줄고, 에너지가 다 떨어지면 체력이 서서히 줄어듭니다. 🍎를 먹으면 에너지를 조금 회복합니다.",
-      )}</p>
-      <details><summary>{t("遊戲題目與本機紀錄", "Practice questions and saved scores", "練習問題と端末の記録", "연습 문제와 기기 기록")}</summary><p>{t(
+      <p className="game-touch-hint">{t('左下移動，右下跳躍。空中再按一次可以二段跳。', 'Move at the bottom left and jump at the bottom right. Tap jump again in midair to double-jump.', '左下で移動、右下でジャンプ。空中でもう一度押すと二段ジャンプできます。', '왼쪽 아래에서 이동하고 오른쪽 아래에서 점프하세요. 공중에서 한 번 더 누르면 이단 점프를 합니다.')}</p>
+      <p className="game-keyboard-hint">{t('用 ← → 或 A、D 移動；按空白鍵、↑ 或 W 跳躍。', 'Move with ← → or A/D. Jump with Space, ↑ or W.', '← → または A・D で移動し、スペース・↑・W でジャンプします。', '← → 또는 A/D로 이동하고 스페이스바, ↑ 또는 W로 점프하세요.')}</p>
+      <details>
+        <summary>{t('完整玩法與本機紀錄', 'How to play and saved scores', '遊び方と端末の記録', '게임 방법과 기기 기록')}</summary>
+        <p>{t('可用畫面按鈕或鍵盤操作：← →／A、D 移動，空白鍵／↑／W 跳躍。空中再按一次可二段跳，提早放開可小跳。往右跑會消耗能量，能量用完會逐漸失去生命，吃 🍎 可以補充能量。', 'Use the on-screen buttons or the keyboard (← → or A/D to move, Space, ↑ or W to jump). Jump again in midair for a double jump or release early for a short hop. Running right uses energy. When it runs out, you gradually lose health. Eat 🍎 to regain energy.', '画面のボタンかキーボード（← → または A・D で移動、スペース・↑・W でジャンプ）で操作します。空中でもう一度押すと二段ジャンプ、早めに離すと小さく跳べます。右へ走るとエネルギーが減り、尽きると体力が徐々に減ります。🍎でエネルギーを回復できます。', '화면 버튼이나 키보드(← → 또는 A/D로 이동, 스페이스바·↑·W로 점프)로 조작합니다. 공중에서 다시 누르면 이단 점프를 하고 일찍 떼면 낮게 뜁니다. 오른쪽으로 달리면 에너지가 줄고, 다 쓰면 체력이 서서히 줄어듭니다. 🍎를 먹어 에너지를 회복하세요.')}</p>
+        <p>{t(
         "每100分隨機讀取後台已發布的防詐練習題，作答後顯示解析；答對補滿能量，答錯扣少量生命（連續答錯扣更多）。題庫需連線；分數、排行榜與最近100筆作答只存在這個裝置的瀏覽器，不回傳後台、不列入研究。清除網站資料後紀錄也會消失。",
         "Every 100 points, you get a random published scam-awareness question and an explanation after you answer. A correct answer refills your energy. A wrong answer costs a little health, and consecutive mistakes cost more. Questions require an internet connection. Your scores, leaderboard and last 100 answers stay in this browser. They are not sent to the server or included in research. Clearing site data removes them.",
         "100点ごとに公開済みの詐欺対策問題がランダムに出題され、回答後に解説が表示されます。正解するとエネルギーが全回復し、不正解では体力が少し減ります。連続で間違えると減少量が増えます。出題にはインターネット接続が必要です。スコア、ランキング、直近100件の回答はこの端末のブラウザーにのみ保存されます。サーバーへの送信や研究への利用はありません。サイトデータを消去すると記録も消えます。",
