@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { formatTime } from '../api'
+import { isLocalQuotaAdmin } from '../googleQuotaAuthorization'
 import { Alert, Section, Spinner } from './ui'
+
+const BrowserQuota = import.meta.env.DEV ? lazy(() => import('./LocalGoogleQuota')) : null
 
 type Call = <T>(path: string, init?: RequestInit) => Promise<T | null>
 const intervals = [5, 15, 30, 45] as const
@@ -24,6 +27,8 @@ export function AdminAiQuota({ call }: { call: Call }) {
   const [busy, setBusy] = useState<'load' | 'save' | 'refresh' | null>('load')
   const [notice, setNotice] = useState('')
   const [retry, setRetry] = useState(0)
+  const [source, setSource] = useState('browser')
+  const local = Boolean(BrowserQuota && isLocalQuotaAdmin())
 
   useEffect(() => {
     let active = true
@@ -70,11 +75,25 @@ export function AdminAiQuota({ call }: { call: Call }) {
     setBusy(null)
   }
 
+  const sourcePicker = local && <label className="block"><span className="label">查詢方式</span>
+    <select className="input min-h-11 w-auto" value={source} onChange={event => setSource(event.target.value)}>
+      <option value="browser">本機瀏覽器（Google 唯讀）</option>
+      <option value="server">網站服務帳戶</option>
+    </select>
+  </label>
+  if (quota && local && BrowserQuota && source === 'browser') {
+    return <Section title="Google AI 額度校準">
+      {sourcePicker}
+      <Suspense fallback={<Spinner label="載入唯讀查詢…" />}><BrowserQuota /></Suspense>
+    </Section>
+  }
+
   return <Section title="Google AI 額度校準">
     {busy === 'load' ? <Spinner label="載入校準設定…" /> : !quota ? <>
       <p>無法載入額度校準設定，請再試一次。</p>
       <button type="button" className="btn-secondary" onClick={() => setRetry(n => n + 1)}>重新載入校準設定</button>
     </> : <>
+      {sourcePicker}
       <div className="flex flex-wrap items-end gap-3">
         <label className="block"><span className="label">自動校準</span>
           <select className="input min-h-11" value={quota.auto_enabled ? quota.interval_minutes : 'off'}

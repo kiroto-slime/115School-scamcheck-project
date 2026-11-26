@@ -9,6 +9,21 @@ const base = {
 }
 afterEach(cleanup)
 
+it('本機管理頁預設提供個人唯讀更新，尚未授權時不觸發伺服器校準', async () => {
+  window.history.replaceState(null, '', '/admin')
+  const requests = vi.fn(async () => ({ ...base, configured: false }))
+  try {
+    render(<AdminAiQuota call={async <T,>() => await requests() as T} />)
+    expect(await screen.findByLabelText('網頁用戶端 ID')).toBeVisible()
+    expect(screen.getByRole('button', { name: '立即更新' })).toBeDisabled()
+    expect(requests).toHaveBeenCalledTimes(1)
+    await userEvent.selectOptions(screen.getByLabelText('查詢方式'), 'server')
+    expect(screen.getByRole('combobox', { name: '自動校準' })).toBeVisible()
+  } finally {
+    window.history.replaceState(null, '', '/')
+  }
+})
+
 it('停用排程時可單獨更新，核對後可直接選 45 分鐘或切回停用', async () => {
   let schedule = { auto_enabled: false, interval_minutes: 30 }
   let verified = false
