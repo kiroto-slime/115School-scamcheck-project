@@ -1,9 +1,9 @@
 import { useLanguage } from '../language'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatTime } from '../api'
+import { api, ApiError, formatTime, type AnalysisResult } from '../api'
 import { Alert, RiskBadge } from '../components/ui'
-import { clearHistory, KEEP_DAYS, readHistory, removeHistory } from '../history'
+import { clearHistory, KEEP_DAYS, readHistory, removeHistory, resultSummary, saveReceipt, type CheckReceipt } from '../history'
 
 export default function History() {
   const { lang, t } = useLanguage()
@@ -14,6 +14,31 @@ export default function History() {
   }
   const [items, setItems] = useState(() => readHistory())
   const [confirmClear, setConfirmClear] = useState(false)
+  useEffect(() => {
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    const sync = async () => {
+      const pending = readHistory().filter(item => item.job === 'pending')
+      for (const item of pending) {
+        if (!active || document.hidden) break
+        try {
+          const result = await api<AnalysisResult | CheckReceipt>(`/api/analysis/${item.id}`)
+          if (!active || !readHistory().some(row => row.id === item.id)) continue
+          if (!('job_status' in result)) saveReceipt(resultSummary(result))
+          else if (result.job_status === 'failed') saveReceipt({ ...item, job: 'failed' })
+        } catch (err) {
+          if (active && err instanceof ApiError && err.status === 404 && readHistory().some(row => row.id === item.id)) saveReceipt({ ...item, job: 'failed' })
+        }
+      }
+      if (!active) return
+      setItems(readHistory())
+      timer = setTimeout(sync, 5000)
+    }
+    const updateList = () => setItems(readHistory())
+    void sync()
+    window.addEventListener('storage', updateList)
+    return () => { active = false; clearTimeout(timer); window.removeEventListener('storage', updateList) }
+  }, [])
   const remove = (id: string) => {
     removeHistory(id)
     setItems(readHistory())
@@ -56,7 +81,7 @@ export default function History() {
             {items.map((h) => (
               <li key={h.id} className="card space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <RiskBadge level={h.level} />
+                  {h.job ? <strong>{h.job === 'pending' ? t('處理中', 'Processing', '処理中', '처리 중') : t('查核未完成', 'Check incomplete', '未完了', '확인 미완료')}</strong> : <RiskBadge level={h.level} />}
                   <span className="text-sm text-slate-500">{mediaLabels[h.media] ?? h.media} · {formatTime(h.at, lang)}</span>
                 </div>
                 {h.reason && <p className="break-words text-slate-700">{h.reason}</p>}

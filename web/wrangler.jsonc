@@ -12,6 +12,8 @@
   },
   // 伺服器固定在臺灣附近執行：Google 不開放部分地區（例如香港）使用 Gemini API
   "placement": { "region": "gcp:asia-east1" },
+  "durable_objects": { "bindings": [{ "name": "TEXT_CHECKS", "class_name": "TextCheck" }] },
+  "migrations": [{ "tag": "text-check-v1", "new_sqlite_classes": ["TextCheck"] }],
   // 管理頁上傳的 165 名單（部署時自動建立）
   "kv_namespaces": [{ "binding": "TW165" }],
   "d1_databases": [
@@ -34,5 +36,6 @@
   "vars": {
     "APP_VERSION": "0.2.0"
   },
-  "observability": { "enabled": true }
+  // 自動請求紀錄會帶完整路徑，個別結果網址只提供給持有者。
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
 }

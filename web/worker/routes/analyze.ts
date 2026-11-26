@@ -1,11 +1,12 @@
 /** 查核 API：文字、圖片、影片 */
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { getRecord, runAnalysis } from '../analysis'
 import { AppEnv, rateLimit, readBody } from '../auth'
 import { Gemini, signMediaRef, verifyMediaRef } from '../gemini'
 import { aiMode, LIMITS } from '../settings'
-import { HttpError } from '../util'
+import { HttpError, newId, nowIso } from '../util'
 
 export const analyze = new Hono<AppEnv>()
 
@@ -27,12 +28,24 @@ const IMAGE_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
   'image/webp': (b) => String.fromCharCode(...b.slice(0, 4)) === 'RIFF' && String.fromCharCode(...b.slice(8, 12)) === 'WEBP',
 }
 
-analyze.post('/analyze/text', async (c) => {
+analyze.post('/analyze/text', bodyLimit({ maxSize: 128 * 1024, onError: () => { throw new HttpError(413, '文字查核的內容過大，請縮短後重新送出。') } }), async (c) => {
   await rateLimit(c, 'ANALYZE_LIMITER')
   const b = await readBody(c, z.object({ text: z.string().min(1).max(LIMITS.maxTextChars), ...common }))
-  return c.json(await runAnalysis(c.env, c.get('settings'), {
-    text: b.text, mediaType: 'text', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: b.use_ai,
-  }))
+  const input = {
+    text: b.text, mediaType: 'text' as const, researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: b.use_ai,
+  }
+  if (c.req.header('Prefer') !== 'respond-async') return c.json(await runAnalysis(c.env, c.get('settings'), input))
+  const id = newId()
+  const created = nowIso()
+  await c.env.DB.prepare('INSERT INTO text_jobs(id,created_at) VALUES (?,?)').bind(id, created).run()
+  const jobs = c.env.TEXT_CHECKS
+  try {
+    await jobs.get(jobs.idFromName(id)).accept(id, input)
+  } catch {
+    await c.env.DB.prepare('UPDATE text_jobs SET failed = 1 WHERE id = ?').bind(id).run()
+    throw new HttpError(503, '暫時無法受理這筆查核，請稍後重新送出。')
+  }
+  return c.json({ analysis_id: id, created_at: created, job_status: 'pending' as const }, 202)
 })
 
 /** 圖片：瀏覽器已先縮圖並轉成 base64。只解碼前幾個位元組檢查檔頭，不整張解碼（省 CPU）。 */
@@ -125,4 +138,18 @@ analyze.post('/analyze/video', async (c) => {
   }
 })
 
-analyze.get('/analysis/:id', async (c) => c.json(await getRecord(c.env.DB, c.req.param('id'))))
+analyze.get('/analysis/:id', async (c) => {
+  const id = c.req.param('id')
+  try {
+    return c.json(await getRecord(c.env.DB, id))
+  } catch (err) {
+    if (!(err instanceof HttpError && err.status === 404)) throw err
+    const job = await c.env.DB.prepare('SELECT failed, created_at FROM text_jobs WHERE id = ?').bind(id).first<{ failed: number; created_at: string }>()
+    if (!job) {
+      // 查詢期間鬧鐘可能剛完成並刪掉待辦。
+      return c.json(await getRecord(c.env.DB, id))
+    }
+    const failed = job.failed || Date.now() - Date.parse(job.created_at) > 3600000
+    return c.json({ analysis_id: id, created_at: job.created_at, job_status: failed ? 'failed' : 'pending' }, failed ? 200 : 202)
+  }
+})

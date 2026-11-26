@@ -54,14 +54,8 @@ export interface AnalyzeInput {
   fetcher?: typeof fetch
 }
 
-export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): Promise<Record<string, unknown>> {
+export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput, analysisId = newId()): Promise<Record<string, unknown>> {
   const db = env.DB
-  const consentResearch = s.research_collection_enabled && (await hasActiveConsent(db, inp.researchId, 'research'))
-  // 保存內容需要「新版」研究同意；舊版同意者只照舊保存衍生結果。超過「訊息內容保存到」日期後不再寫入新內容
-  const withinRetention = nowIso().slice(0, 10) <= s.content_retention_until
-  const consentContent = consentResearch && withinRetention && (await hasActiveConsent(db, inp.researchId, 'research', s.consent_version))
-  const consentSecondary = consentResearch && (await hasActiveConsent(db, inp.researchId, 'secondary_use'))
-
   const redacted = redactPii(inp.text)
   const urls = extractUrls(inp.text)
   const opts = { fetcher: inp.fetcher }
@@ -103,6 +97,11 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
       ? notRequestedResult()
       : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel)
 
+  // 外部查詢可能要等幾分鐘，在寫入前才確認同意，以涵蓋等待期間的撤回。
+  const consentResearch = s.research_collection_enabled && (await hasActiveConsent(db, inp.researchId, 'research'))
+  const withinRetention = nowIso().slice(0, 10) <= s.content_retention_until
+  const consentContent = consentResearch && withinRetention && (await hasActiveConsent(db, inp.researchId, 'research', s.consent_version))
+  const consentSecondary = consentResearch && (await hasActiveConsent(db, inp.researchId, 'secondary_use'))
   const content = consentContent ? savedContent(inp.text, inp.mediaType, ai.status === 'ok' ? ai.media_description ?? null : null) : null
   // 網址路徑也可能夾帶手機、證號，保存前同樣遮蔽
   const contentUrls = consentContent ? JSON.stringify(urls.map((u) => redactPii(u.url)).slice(0, 10)) : null
@@ -119,7 +118,6 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
     ai,
     checked_at: now,
   }
-  const analysisId = newId()
   const anyError = [lookup.status, ai.status, safeBrowsing.status, virusTotal.status, factCheck.status].includes('error')
   const status = anyError ? 'completed_with_source_error' : 'completed'
   const stmts = [
@@ -151,13 +149,11 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput): 
     else stmts.push(src('google_factcheck', factCheck.status, { match_type: 'none' }, null))
   }
   await db.batch(stmts)
-  const rec = await db.prepare('SELECT * FROM analysis_records WHERE analysis_id = ?').bind(analysisId).first<AnalysisRow>()
-  return serialize(rec!)
+  return getRecord(db, analysisId)
 }
 
 export interface AnalysisRow {
   analysis_id: string
-  research_id_nullable: string | null
   created_at: string
   media_type: string
   risk_level: string
@@ -169,12 +165,11 @@ export interface AnalysisRow {
   consent_research: number
   result_json: string
   expires_at: string | null
-  content_text: string | null
-  content_urls_json: string | null
-  content_edited: number
 }
 
 export function serialize(rec: AnalysisRow): Record<string, unknown> {
+  const details = parseJson<Record<string, unknown>>(rec.result_json, {})
+  const publicFields = ['record_origin', 'demo', 'media', 'cofacts', 'fact_check', 'url_checks', 'features', 'basis', 'safe_actions', 'ai', 'checked_at']
   return {
     analysis_id: rec.analysis_id,
     created_at: rec.created_at,
@@ -187,13 +182,15 @@ export function serialize(rec: AnalysisRow): Record<string, unknown> {
     external_ai_used: Boolean(rec.external_ai_used),
     consent_research: Boolean(rec.consent_research),
     score_disclaimer: '風險指數為規則加權分數，不是經統計校準的詐騙機率，也不是司法認定。',
-    ...parseJson<Record<string, unknown>>(rec.result_json, {}),
+    ...Object.fromEntries(publicFields.filter(key => Object.hasOwn(details, key)).map(key => [key, details[key]])),
   }
 }
 
 export async function getRecord(db: D1Database, id: string): Promise<Record<string, unknown>> {
   if (!/^[a-f0-9]{32}$/.test(id)) throw new HttpError(404, '找不到這筆分析結果。')
-  const rec = await db.prepare('SELECT * FROM analysis_records WHERE analysis_id = ?').bind(id).first<AnalysisRow>()
+  const rec = await db.prepare(`SELECT analysis_id, created_at, media_type, risk_level, risk_score_nullable, risk_tags_json,
+    analysis_status, rule_version, external_ai_used, consent_research, result_json, expires_at
+    FROM analysis_records WHERE analysis_id = ?`).bind(id).first<AnalysisRow>()
   if (!rec || (rec.expires_at && rec.expires_at < nowIso())) throw new HttpError(404, '找不到這筆分析結果，可能已超過暫存期限而自動刪除。')
   return serialize(rec)
 }

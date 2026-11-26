@@ -9,12 +9,14 @@ import { admin } from './routes/admin'
 import { analyze } from './routes/analyze'
 import { research } from './routes/research'
 import { game } from './routes/game'
+import { opinions } from './routes/opinions'
 import { RULE_VERSION } from './rules'
 import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
 import { tw165Meta } from './urlcheck'
 import { currentModel, modelStates } from './aimodels'
 import { serviceQuotas } from './quotas'
 import { HttpError } from './util'
+export { TextCheck } from './text-check'
 
 export const app = new Hono<AppEnv>().basePath('/api')
 
@@ -55,6 +57,7 @@ app.get('/health', async (c) => {
 })
 
 app.route('/', analyze)
+app.route('/', opinions)
 app.route('/', game)
 app.route('/', research)
 app.route('/', admin)
@@ -63,7 +66,7 @@ app.notFound((c) => c.json({ detail: '找不到 API。' }, 404))
 app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ detail: err.message }, err.status as 400)
   if (err instanceof GeminiError) return c.json({ detail: err.message }, 502)
-  console.error('unhandled error', err) // 不回傳內部細節給使用者
+  console.error('查核服務發生未預期錯誤') // 例外內容可能帶有查核文字或外部服務資訊
   return c.json({ detail: '伺服器發生錯誤，請稍後再試。' }, 500)
 })
 
@@ -71,6 +74,10 @@ export default {
   fetch: app.fetch,
   // 每日排程：清除過期的暫存分析紀錄
   async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(env.DB.batch([
+      env.DB.prepare("DELETE FROM text_jobs WHERE julianday(created_at) < julianday('now','-30 days')"),
+      env.DB.prepare("DELETE FROM result_opinions WHERE keep_until < date('now','+8 hours')"),
+    ]))
     ctx.waitUntil(getSettings(env.DB).then((s) => purgeExpired(env.DB, s)))
   },
 } satisfies ExportedHandler<Env>

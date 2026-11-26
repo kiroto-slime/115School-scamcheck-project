@@ -211,7 +211,7 @@ function Site() {
               <Route path="/" element={<Home />} />
               <Route path="/guides/parcel-message" element={<ParcelGuide />} />
               <Route path="/check" element={<Check />} />
-              <Route path="/result/:id" element={<Result />} />
+              <Route path="/result/:id" element={<Result key={loc.pathname} />} />
               <Route path="/history" element={<History />} />
               <Route path="/research" element={<Research />} />
               <Route path="/privacy" element={<Privacy />} />

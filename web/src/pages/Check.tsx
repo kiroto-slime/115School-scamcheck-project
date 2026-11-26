@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, consentRecorded, currentAiModel, postJson, researchId, researchWithdrawn, type AnalysisResult, type NeedsManualText } from '../api'
 import { prepareImage, videoMime } from '../media'
 import { NaughtyButton } from '../components/NaughtyButton'
+import { saveReceipt, type CheckReceipt } from '../history'
 import { type ServiceOption, ServiceOptions } from '../components/ServiceOptions'
 import { Alert, refreshHealth, ServiceConnectionError, Spinner, useHealth } from '../components/ui'
 
@@ -126,6 +127,19 @@ export default function Check() {
   const [aiChoice, setAiChoice] = useState('')
   // 切到圖片／影片、或選的模型用完／冷卻中時，改回自動
   const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0 && m.cooldown === 0) ? aiChoice : ''
+  const autoLabel = aiNow ? t(`自動（目前 ${aiNow.label}，剩 ${aiNow.remaining} 次）`, `Auto (${aiNow.label}, ${aiNow.remaining} left)`, `自動（現在 ${aiNow.label}、残り${aiNow.remaining}回）`, `자동(현재 ${aiNow.label}, ${aiNow.remaining}회 남음)`) : ''
+  const modelOptions = aiModels.map(m => {
+    const quotaLabel = m.remaining <= 0
+      ? t('今日已用完', 'daily limit reached', '本日の上限', '오늘 사용량 소진')
+      : m.cooldown > 0
+        ? t(`冷卻中 ${m.cooldown} 秒`, `available in ${m.cooldown}s`, `あと${m.cooldown}秒`, `${m.cooldown}초 후 가능`)
+        : t(`剩 ${m.remaining} 次`, `${m.remaining} left`, `残り${m.remaining}回`, `${m.remaining}회 남음`)
+    return {
+      id: m.id,
+      disabled: m.remaining <= 0 || m.cooldown > 0,
+      label: m.label + t('（', ' (', '（', ' (') + quotaLabel + t('）', ')', '）', ')'),
+    }
+  })
   const aiBlocked = !aiNow // 今天用完，或這一分鐘全部冷卻中
   const aiOn = aiAvailable && useAi && !aiBlocked
   const googleAvailable = health?.modes.google === 'live'
@@ -237,8 +251,15 @@ export default function Check() {
         query_virustotal: vtAvailable && queryVt && !vtQ.blocked,
       }
       if (mode === 'text') {
-        setBusy(aiOn ? 'AI 分析中，內容較長時可能需要 1～2 分鐘，請稍候…' : '分析文字與查詢來源中…')
-        result = await postJson<AnalysisResult>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) })
+        setBusy(t('正在送出，請先保留此頁。', 'Sending. Keep this page open.', '送信中です。このページでお待ちください。', '보내는 중입니다. 이 페이지를 열어 두세요.'))
+        const response = await postJson<AnalysisResult | CheckReceipt>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }, { Prefer: 'respond-async' })
+        if ('job_status' in response) {
+          const saved = saveReceipt({ id: response.analysis_id, at: response.created_at, job: 'pending', level: '', media: 'text', score: null, reason: null })
+          clearDraft()
+          nav(`/result/${response.analysis_id}`, { state: { receipt: response, saved } })
+          return
+        }
+        result = response
       } else {
         const ai = aiOn
         const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
@@ -371,15 +392,14 @@ export default function Check() {
           aiAvailable && { key: 'ai', label: t('使用 Gemini AI 分析', 'Analyze with Gemini AI', 'Gemini AIで分析', 'Gemini AI로 분석'), sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: t('Google Gemini（請勿上傳他人隱私）', 'Google Gemini (do not upload other people’s private information)', 'Google Gemini（他人の個人情報をアップロードしないでください）', 'Google Gemini(타인의 개인정보를 올리지 마세요)'), checked: useAi, onChange: setUseAi,
             disabled: aiBlocked,
             chip: aiNow ? (
-              <select aria-label={t('選擇 AI 模型', 'Choose AI model', 'AIモデルを選択', 'AI 모델 선택')} className="input min-h-11 py-1 text-xs" value={aiModel}
-                onClick={(e) => e.stopPropagation()} onChange={(e) => setAiChoice(e.target.value)}>
-                <option value="">{t(`自動（目前 ${aiNow.label}，剩 ${aiNow.remaining} 次）`, `Auto (${aiNow.label}, ${aiNow.remaining} left)`, `自動（現在 ${aiNow.label}、残り${aiNow.remaining}回）`, `자동(현재 ${aiNow.label}, ${aiNow.remaining}회 남음)`)}</option>
-                {aiModels.map((m) => (
-                  <option key={m.id} value={m.id} disabled={m.remaining <= 0 || m.cooldown > 0}>
-                    {m.label}{t('（', ' (', '（', ' (')}{m.remaining <= 0 ? t('今日已用完', 'daily limit reached', '本日の上限', '오늘 사용량 소진') : m.cooldown > 0 ? t(`冷卻中 ${m.cooldown} 秒`, `available in ${m.cooldown}s`, `あと${m.cooldown}秒`, `${m.cooldown}초 후 가능`) : t(`剩 ${m.remaining} 次`, `${m.remaining} left`, `残り${m.remaining}回`, `${m.remaining}회 남음`)}{t('）', ')', '）', ')')}
-                  </option>
-                ))}
-              </select>
+              <>
+                <span className="model-selection-label input" aria-hidden="true">{modelOptions.find(m => m.id === aiModel)?.label ?? autoLabel}</span>
+                <select aria-label={t('選擇 AI 模型', 'Choose AI model', 'AIモデルを選択', 'AI 모델 선택')} className="input min-h-11 py-1 text-xs" value={aiModel}
+                  onClick={(e) => e.stopPropagation()} onChange={(e) => setAiChoice(e.target.value)}>
+                  <option value="">{autoLabel}</option>
+                  {modelOptions.map(m => <option key={m.id} value={m.id} disabled={m.disabled}>{m.label}</option>)}
+                </select>
+              </>
             ) : aiWait > 0
               ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">{t(`使用人數較多，AI 冷卻中，${aiWait} 秒後可用`, `AI is busy. Try again in ${aiWait}s.`, `AIが混み合っています。あと${aiWait}秒で利用できます。`, `AI 사용량이 많습니다. ${aiWait}초 후 이용할 수 있습니다.`)}</span>
               : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">{t('今日 AI 額度已用完', 'Daily AI limit reached', '本日のAI利用枠を使い切りました', '오늘 AI 사용량 소진')}</span>,

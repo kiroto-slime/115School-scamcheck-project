@@ -160,6 +160,17 @@ input[type=checkbox], input[type=radio] { accent-color: var(--color-teal-700); }
 select.input { max-width: 100%; text-overflow: ellipsis; }
 .input:disabled { opacity: 1; color: var(--color-slate-500); background: var(--color-slate-100); }
 summary { cursor: pointer; }
+.receipt-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(26rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  background-color: var(--field);
+  color: var(--color-slate-800);
+}
+.receipt-dialog::backdrop { background: rgb(0 0 0 / 36%); }
 summary:focus-visible { border-radius: 8px; }
 .app-shell { display: flex; min-height: 100dvh; flex-direction: column; }
 .topbar { position: sticky; top: 0; z-index: 30; background: transparent; }
@@ -250,13 +261,18 @@ summary:focus-visible { border-radius: 8px; }
 .setting-disclosure[open] > summary::after { content: '−'; }
 .disclosure-hint { display: inline-block; margin-left: 12px; color: var(--disclosure-ink); font-size: .75rem; font-weight: 400; }
 .disclosure-content { padding: 12px 0 16px; }
+#service-settings > .disclosure-content { padding-inline: clamp(8px, 1.5vw, 24px); }
 .service-row, .consent-row { display: flex; align-items: center; gap: 12px; min-height: 64px; border: 1px solid var(--control-border); border-radius: 14px; padding: 14px 16px; background: var(--field); }
 .service-row { flex-wrap: wrap; }
 .service-main { display: flex; align-items: center; gap: 12px; min-height: 40px; min-width: 0; flex: 1 1 220px; cursor: pointer; }
 .service-main:has(input:disabled), .consent-row:has(input:disabled) { color: var(--color-slate-500); cursor: default; }
 .service-chip { min-width: 0; max-width: 100%; flex: 0 1 240px; }
 .service-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; margin-left: auto; }
-.ai-service-row { display: grid; grid-template-columns: minmax(12rem,1fr) minmax(18rem,26rem) auto; }
+.ai-service-row { display: grid; grid-template-columns: minmax(11rem,1fr) minmax(18rem,26rem) minmax(max-content,.35fr); }
+.ai-service-row .service-chip:has(select) { position: relative; }
+.model-selection-label { display: none; }
+.ai-service-row select { appearance: none; padding-inline-end: 2.25rem; }
+.ai-service-row .service-chip:has(select)::after { content: ''; position: absolute; inset-inline-end: 1rem; top: 50%; width: .5rem; height: .5rem; border: solid var(--color-slate-700); border-width: 0 2px 2px 0; transform: translateY(-70%) rotate(45deg); pointer-events: none; }
 .ai-service-row .service-tags { grid-column: 3; }
 .consent-row { align-items: flex-start; cursor: pointer; }
 .home-disclosure > summary { min-height: 44px; font-size: 1.125rem; font-weight: 600; }
@@ -272,7 +288,7 @@ summary:focus-visible { border-radius: 8px; }
   .ai-service-row { grid-template-columns: minmax(0,1fr) auto; }
   .ai-service-row .service-main { grid-area: 1 / 1; }
   .ai-service-row .service-tags { grid-area: 1 / 2; }
-  .ai-service-row .service-chip { grid-area: 2 / 1 / 3 / -1; width: calc(100% - 32px); margin-left: 32px; max-width: none; }
+  .ai-service-row .service-chip { grid-area: 2 / 1 / 3 / -1; width: min(26rem, calc(100% - 12px)); margin-inline: auto; }
 }
 @media (max-width: 767px) {
   .input-tab { flex-direction: column; gap: 6px; padding: 10px 4px; }
@@ -282,7 +298,10 @@ summary:focus-visible { border-radius: 8px; }
   .ai-service-row { grid-template-columns: minmax(0,1fr); }
   .ai-service-row .service-main { grid-area: auto; }
   .ai-service-row .service-tags { grid-area: auto; flex-basis: auto; margin-left: 30px; justify-self: start; }
-  .ai-service-row .service-chip { grid-area: auto; width: calc(100% - 30px); margin-left: 30px; max-width: none; }
+  .ai-service-row .service-chip { grid-area: auto; }
+  .ai-service-row .model-selection-label { display: flex; align-items: center; min-height: 44px; padding-inline-end: 2.25rem; font-size: .875rem; }
+  .ai-service-row select { position: absolute; inset: 0; height: 100%; opacity: 0; }
+  .ai-service-row .service-chip:has(select:focus-visible) { outline: 2px solid var(--color-teal-600); outline-offset: 2px; border-radius: .75rem; }
   .disclosure-hint { display: none; }
 }
 

@@ -5,6 +5,29 @@ import { twTime } from '../export-format'
 import { DEFAULT_SETTINGS } from '../settings'
 import { ADMIN_PASSWORD, adminHeaders, call, count, SCAM } from './helpers'
 
+describe('結果頁心得隱私', () => {
+  it('僅於收件期間接受心得，遮蔽聯絡方式，管理清單不提供刪除碼', async () => {
+    const path = '/api/result-opinions'
+    const body = { topic: 'helpful', suggestion: '測試聯絡信箱 example@example.invalid' }
+    expect((await call(path, { body })).status).toBe(410)
+    const headers = await adminHeaders()
+    const day = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+    expect((await call('/api/admin/settings', { headers, method: 'PUT', body: { opinion_deadline: day, opinion_keep_until: day } })).status).toBe(200)
+    const sent = await call(path, { body })
+    expect(sent.status).toBe(201)
+    const code = sent.json.deletion_code
+    const row = await env.DB.prepare('SELECT id,suggestion FROM result_opinions').first<{ id: string; suggestion: string }>()
+    expect(row?.id).not.toBe(code)
+    expect(row?.suggestion).toContain('[Email]')
+    expect((await call('/api/admin/result-opinions')).status).toBe(401)
+    const list = await call('/api/admin/result-opinions', { headers })
+    expect(list.json).toHaveLength(1)
+    expect(list.json[0]).not.toHaveProperty('id')
+    expect((await call(path, { method: 'DELETE', body: { code } })).status).toBe(200)
+    expect(await count('result_opinions')).toBe(0)
+  })
+})
+
 async function fullFlow() {
   const s = (await call('/api/research/start', { body: { consent_research: true, consent_secondary: false } })).json
   const { research_id, pre_case, post_case } = s

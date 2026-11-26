@@ -60,6 +60,7 @@ guarded.post('/backup.json', async (c) => {
     'feedback_records', 'product_survey_responses', 'business_events', 'app_settings', 'audit_logs', 'game_questions']
   const out: Record<string, unknown[]> = {}
   for (const t of tables) out[t] = (await c.env.DB.prepare(`SELECT * FROM ${t}`).all()).results
+  out.result_opinions = (await c.env.DB.prepare("SELECT topic,suggestion,submitted_day,keep_until FROM result_opinions WHERE keep_until >= date('now','+8 hours')").all()).results
   await audit(c.env.DB, c.get('admin'), 'backup')
   return c.json({ exported_at: nowIso(), version: c.env.APP_VERSION, tables: out }, 200, { 'Content-Disposition': `attachment; filename="scamcheck-backup-${nowIso().slice(0, 10)}.json"` })
 })
@@ -156,9 +157,15 @@ guarded.post('/business-events', async (c) => {
 
 /** 系統設定（取代 v0.1 的 config.env） */
 guarded.get('/settings', (c) => c.json(c.get('settings')))
+guarded.get('/result-opinions', async c => {
+  const rows = await c.env.DB.prepare("SELECT topic,suggestion,submitted_day FROM result_opinions WHERE keep_until >= date('now','+8 hours') ORDER BY rowid DESC LIMIT 200").all()
+  return c.json(rows.results)
+})
 
 guarded.put('/settings', async (c) => {
   const b = await readBody(c, z.object({
+    opinion_deadline: z.union([z.literal(''), z.iso.date()]),
+    opinion_keep_until: z.union([z.literal(''), z.iso.date()]),
     research_mode: z.enum(['simulation', 'formal']),
     research_group_mode: z.enum(['balanced', 'A', 'B']),
     research_collection_enabled: z.boolean(),
@@ -182,6 +189,9 @@ guarded.put('/settings', async (c) => {
       return v >= today && v <= max.toISOString().slice(0, 10)
     }, '保存日期必須是真實存在的日期，且介於今天到 10 年後之間。'),
   }).partial())
+  const next = { ...c.get('settings'), ...b }
+  if (next.opinion_deadline && next.opinion_keep_until < next.opinion_deadline)
+    throw new HttpError(422, '意見保存日期必須在收件截止日當天或之後。')
   await saveSettings(c.env.DB, b as Partial<AppSettings>)
   await audit(c.env.DB, c.get('admin'), 'update_settings', null, JSON.stringify(b))
   return c.json({ updated: true })

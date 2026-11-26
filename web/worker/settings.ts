@@ -19,6 +19,8 @@ export interface AppSettings {
   research_retention_days: number
   /** 同意研究者的訊息內容預計保存到這一天（YYYY-MM-DD），顯示在研究同意說明 */
   content_retention_until: string
+  opinion_deadline: string
+  opinion_keep_until: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -36,6 +38,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   temp_retention_hours: 720,
   research_retention_days: 730,
   content_retention_until: '2027-12-31',
+  opinion_deadline: '',
+  opinion_keep_until: '',
 }
 
 /** 上傳限制（開發預設值，非外部服務官方限制） */

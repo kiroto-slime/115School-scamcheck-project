@@ -15,6 +15,9 @@ test('主要查核流程：輸入文字 → 結果頁', async ({ page }) => {
   await page.locator('#service-settings > summary').click()
   await page.getByLabel(/送至 Cofacts/).uncheck()
   await page.getByRole('button', { name: '開始查核' }).click()
+  const receipt = page.getByRole('dialog', { name: '已收到' })
+  await expect(receipt.getByRole('link', { name: '查核下一則' })).toBeVisible()
+  await receipt.getByRole('button', { name: '了解，我已明白' }).click()
   await expect(page.getByRole('heading', { name: '查核結果', exact: true })).toBeVisible()
   await expect(page.getByText('風險等級：高').first()).toBeVisible()
   // 結論卡與建議行動直接顯示；詳細結果要點「查看完整分析」才展開

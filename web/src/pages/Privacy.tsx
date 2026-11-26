@@ -1,8 +1,35 @@
 import { studyMessage } from './studyMessages'
 import { useLanguage } from '../language'
 import { useState } from 'react'
-import { ApiError, postJson, researchId, researchWithdrawn } from '../api'
+import { api, ApiError, postJson, researchId, researchWithdrawn } from '../api'
 import { Alert, Section } from '../components/ui'
+
+function RemoveOpinion() {
+  const { t } = useLanguage()
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  return <details>
+    <summary>{t('用刪除碼移除心得', 'Remove a comment with a code', 'コードで感想を削除', '코드로 소감 삭제')}</summary>
+    <form className="mt-3 space-y-3" onSubmit={async event => {
+      event.preventDefault()
+      if (busy) return
+      setBusy(true)
+      setMessage('')
+      try {
+        await api('/api/result-opinions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, referrerPolicy: 'no-referrer', body: JSON.stringify({ code }) })
+        setCode('')
+        setMessage(t('刪除要求已處理。', 'Deletion request processed.', '削除依頼を処理しました。', '삭제 요청을 처리했습니다.'))
+      } catch {
+        setMessage(t('刪除失敗，請確認網路後再試。', 'Could not delete. Check your connection and retry.', '削除できません。通信を確認して再試行してください。', '삭제하지 못했습니다. 연결을 확인한 후 다시 시도하세요.'))
+      } finally { setBusy(false) }
+    }}>
+      <label className="label">{t('心得刪除碼', 'Comment deletion code', '感想の削除コード', '소감 삭제 코드')}<input className="input" required pattern="[a-f0-9]{32}" value={code} onChange={e => setCode(e.target.value.trim())} /></label>
+      <button className="btn-secondary" disabled={busy}>{t('刪除這則心得', 'Delete comment', '感想を削除', '소감 삭제')}</button>
+      {message && <p role="status">{message}</p>}
+    </form>
+  </details>
+}
 
 export default function Privacy() {
   const { lang, t } = useLanguage()
@@ -141,6 +168,10 @@ export default function Privacy() {
           "本研究では高校生の参加を予定しています。正式な研究の前に学校の審査を受け、規定に従って法定代理人の同意を得る必要があります。承認までは模擬研究モードのみを使用し、データには DEMO と表示して正式な研究から除外します。",
           "이 프로젝트는 고등학생의 참여를 예정하고 있습니다. 정식 연구 전에 학교 심사를 받고 규정에 따라 법정 대리인의 동의를 얻어야 합니다. 승인 전에는 모의 연구 모드만 사용하며 데이터에 DEMO를 표시하고 정식 연구에서 제외합니다.",
         )}</p>
+      </Section>
+      <Section title={t('查核結果頁的改善意見', 'Feedback on the results page', '結果ページの改善に関する意見', '확인 결과 페이지 개선 의견')}>
+        <p>{t('選擇「有幫助」或「沒幫助」後，可自由補充心得。團隊用這些回覆改善查核服務。心得與查核編號分開保存，收件與保存期限列在輸入欄下方。請勿填寫個資或原始訊息。', 'After voting, you may leave a comment to help improve the service. Comments are stored separately from check IDs. Collection and retention dates appear under the field. Leave out personal details and the original message.', '投票後、任意で感想を送れます。感想はサービス改善に使い、チェックIDと分けて保存します。受付・保存期限は入力欄の下に表示します。個人情報や元のメッセージは書かないでください。', '투표 후 서비스 개선을 위한 소감을 남길 수 있습니다. 소감은 확인 번호와 별도로 저장합니다. 접수 및 보관 기한은 입력란 아래에 표시됩니다. 개인정보나 원문은 적지 마세요.')}</p>
+        <RemoveOpinion />
       </Section>
       <Section title={t("聯絡方式", "Contact", "お問い合わせ", "문의 방법")}>
         <p>{t(

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, formatTime, postJson } from '../api'
 import { Alert, Section, Spinner } from '../components/ui'
 import { GameQuestions } from '../components/GameQuestions'
+import { opinionTopics, type OpinionTopic } from '../../shared/result-opinion'
 import { buildWorkbook, downloadBlob, type ExportData } from '../excel'
 import { buildUploadChunks, parseCsvFiles, TW165_DATASETS } from '../tw165'
 
@@ -421,6 +422,7 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
 
 function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void }) {
   const { data, reload } = useLoad<any>(call, '/api/admin/settings')
+  const [opinions, setOpinions] = useState<{topic: OpinionTopic; suggestion: string; submitted_day: string}[] | null>(null)
   const [f, setF] = useState<any>(null)
   const [confirmFormal, setConfirmFormal] = useState(false)
   useEffect(() => { if (data) setF({ ...data, content_retention_until: data.content_retention_until ?? '', models_text: modelsToText(data.gemini_models ?? []) }) }, [data])
@@ -430,6 +432,7 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
   const save = async () => {
     if (f.research_mode === 'formal' && data.research_mode !== 'formal' && !confirmFormal) return setConfirmFormal(true)
     const body = { research_mode: f.research_mode, research_group_mode: f.research_group_mode, research_collection_enabled: f.research_collection_enabled,
+      opinion_deadline: f.opinion_deadline ?? '', opinion_keep_until: f.opinion_keep_until ?? '',
       gemini_models: parseModels(f.models_text), gemini_daily_limit: Number(f.gemini_daily_limit),
       cofacts_enabled: Boolean(f.cofacts_enabled), cofacts_daily_limit: Number(f.cofacts_daily_limit),
       google_daily_limit: Number(f.google_daily_limit), virustotal_daily_limit: Number(f.virustotal_daily_limit),
@@ -453,6 +456,14 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
         <label className="block"><span className="label">訊息內容保存到</span>
           <input className="input" type="date" value={f.content_retention_until} onChange={(e) => set('content_retention_until', e.target.value)} /></label>
         <p className="text-xs text-slate-500">超過這個日期，已保存的（遮蔽後）訊息內容會自動清空；日期須介於今天到 10 年內。</p>
+      </Section>
+      <Section title="結果頁改善意見">
+        <label className="block">收件截止日（臺灣時間，留空即關閉）
+          <input className="input" type="date" value={f.opinion_deadline ?? ''} onChange={e => set('opinion_deadline', e.target.value)} /></label>
+        <label className="block">新回覆保存到
+          <input className="input" type="date" min={f.opinion_deadline || undefined} value={f.opinion_keep_until ?? ''} onChange={e => set('opinion_keep_until', e.target.value)} /></label>
+        <button className="btn-secondary" onClick={async () => setOpinions(await call('/api/admin/result-opinions'))}>查看最近 200 則意見</button>
+        {opinions && (opinions.length ? <ul className="space-y-2">{opinions.map((row,i) => <li key={i} className="break-words"><strong>{opinionTopics[row.topic][0]}</strong> · {row.submitted_day}<p>{row.suggestion || '未填簡答'}</p></li>)}</ul> : <p>尚無保存中的意見。</p>)}
       </Section>
       <Section title="AI 與外部查詢">
         <label className="block"><span className="label">AI 模型順序（用完一個自動換下一個）</span>

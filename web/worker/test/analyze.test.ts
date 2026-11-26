@@ -24,6 +24,20 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 }
 
 describe('文字查核', () => {
+  it('查詢外部服務期間撤回研究同意，完成時不再保存研究內容', async () => {
+    const { json: grant } = await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })
+    expect(grant.research_id).toBeTruthy()
+    const calls = mockFetch(async () => {
+      await call('/api/consent', { body: { research_id: grant.research_id, purpose: 'research', status: 'withdrawn' } })
+      return Response.json({ data: { ListArticles: { edges: [] } } })
+    })
+    const result = await call('/api/analyze/text', { body: { research_id: grant.research_id, text: '明天請將圖書交回教室。' } })
+    expect(result.status).toBe(200)
+    expect(calls).toHaveLength(1)
+    const record = await env.DB.prepare('SELECT research_id_nullable, consent_research, content_text FROM analysis_records WHERE analysis_id = ?').bind(result.json.analysis_id).first()
+    expect(record).toEqual({ research_id_nullable: null, consent_research: 0, content_text: null })
+  })
+
   it('正常運作，且資料庫不存原文', async () => {
     const r = await call('/api/analyze/text', { body: { text: SCAM } })
     expect(r.status).toBe(200)
