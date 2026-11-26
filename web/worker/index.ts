@@ -17,6 +17,8 @@ import { tw165Meta } from './urlcheck'
 import { cleanupTw165Uploads } from './tw165-upload'
 import { currentModel, modelStates } from './aimodels'
 import { serviceQuotas } from './quotas'
+import { publicQuota, refreshQuota } from './quota-sync'
+import { monitoringConfigured } from './google-monitoring'
 import { HttpError } from './util'
 export { TextCheck } from './text-check'
 
@@ -63,6 +65,7 @@ app.get('/health', async (c) => {
       ai: aiMode(c.env),
       ai_model: cur?.label ?? null,
       ai_models: models.filter((m) => !m.unavailable),
+      ai_quota_sync: await publicQuota(c.env, models),
       research_mode: s.research_mode,
       research_collection_enabled: s.research_collection_enabled,
       consent_version: s.consent_version,
@@ -89,8 +92,15 @@ app.onError((err, c) => {
 
 export default {
   fetch: app.fetch,
-  // 每日排程：清除過期的暫存分析紀錄
-  async scheduled(_controller, env, ctx) {
+  async scheduled(controller, env, ctx) {
+    if (controller.cron === '*/5 * * * *') {
+      if (monitoringConfigured(env)) {
+        ctx.waitUntil(getSettings(env.DB).then(s => refreshQuota(env, s.gemini_models, 'auto')))
+      }
+      return
+    }
+    // 僅原有的每日排程處理資料保存期限。
+    if (controller.cron !== '17 19 * * *') return
     ctx.waitUntil(Promise.all([
       env.DB.batch([
         env.DB.prepare("DELETE FROM text_jobs WHERE julianday(created_at) < julianday('now','-30 days')"),

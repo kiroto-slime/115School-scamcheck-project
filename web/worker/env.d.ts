@@ -1,5 +1,8 @@
 // 秘密值（在 Cloudflare 後台 Settings → Variables and Secrets 設定；本機放 .dev.vars）
 interface Env {
+  GOOGLE_MONITORING_PROJECT_ID?: string
+  GOOGLE_MONITORING_CLIENT_EMAIL?: string
+  GOOGLE_MONITORING_PRIVATE_KEY?: string
   ADMIN_PASSWORD?: string
   GEMINI_API_KEY?: string
   // 選填：Google Cloud 金鑰（啟用 Safe Browsing API 與 Fact Check Tools API）

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, formatTime, postJson } from '../api'
 import { Alert, Section, Spinner } from '../components/ui'
+import { AdminAiQuota } from '../components/AdminAiQuota'
 import { GameQuestions } from '../components/GameQuestions'
 import { opinionTopics, type OpinionTopic } from '../../shared/result-opinion'
 import { buildWorkbook, downloadBlob, type ExportData } from '../excel'
@@ -72,7 +73,10 @@ export default function Admin() {
       {tab === 'patterns' && <Patterns call={call} />}
       {tab === 'business' && <Business call={call} dataset={dataset} onDone={setNotice} />}
       {tab === 'data' && <DataTools token={token} call={call} dataset={dataset} onDone={setNotice} onError={setError} />}
-      {tab === 'settings' && <SettingsTab call={call} onDone={setNotice} />}
+      {tab === 'settings' && <>
+        <AdminAiQuota call={call} />
+        <SettingsTab call={call} onDone={setNotice} />
+      </>}
     </div>
   )
 }

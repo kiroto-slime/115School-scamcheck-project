@@ -14,6 +14,8 @@ export interface ServiceOption {
   disabled?: boolean
   /** 標籤旁的小提示（例如目前模型與剩餘次數） */
   chip?: ReactNode
+  /** 顯示在服務說明下方的狀態，例如校準資料時間 */
+  note?: ReactNode
   /** 展開說明裡的補充（例如模型順序） */
   detail?: ReactNode
 }
@@ -103,6 +105,7 @@ export function ServiceOptions({ options }: { options: ServiceOption[] }) {
             <span className="min-w-0 text-sm">
               <span>{o.label}</span>
               <span className="block text-xs text-slate-500">{descriptions[o.key]}</span>
+              {o.note && <span className="block text-xs text-slate-500">{o.note}</span>}
             </span>
           </label>
           {o.chip && <div className="service-chip">{o.chip}</div>}

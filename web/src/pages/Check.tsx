@@ -54,9 +54,9 @@ function clearDraft() {
 }
 
 export default function Check() {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const message = (value: string) => checkMessage(t, value)
-  const { health, error: healthError } = useHealth()
+  const { health, error: healthError } = useHealth(true)
   const limits = health?.limits ?? { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 }
   const nav = useNavigate()
   // 草稿存在 sessionStorage：重新整理還在，關掉分頁就清除（不上傳）
@@ -84,15 +84,28 @@ export default function Check() {
   }, [health])
   // 不能是負數：否則沒在冷卻的模型會被誤算成「冷卻 1 秒」而一直閃
   const passed = Math.max(0, Math.floor((now - healthAt) / 1000))
+  const sync = health?.modes.ai_quota_sync
   // 圖片、影片模式只列出能分析媒體的模型
   const aiModels = (health?.modes.ai_models ?? [])
     .filter((m) => mode === 'text' || m.media)
     .map((m) => {
       const cooldown = Math.max(0, m.cooldown_seconds - passed)
-      return { ...m, cooldown, minute_left: cooldown > 0 ? 0 : Math.max(m.minute_left, 1) }
+      const sample = sync?.models.find(sample => sample.id === m.id)
+      const left = Math.min(m.remaining, sample?.estimated_remaining ?? m.remaining)
+      const estimate = sample
+        ? t(`校準後估剩 ${left} 次`, `about ${left} left after sync`, `照合後の目安 残り${left}回`, `동기화 후 약 ${left}회 남음`)
+        : t(`本站估計剩 ${left} 次`, `site estimate: ${left} left`, `サイト推定 残り${left}回`, `사이트 추정 ${left}회 남음`)
+      return { ...m, sample, estimate, left, cooldown, minute_left: cooldown > 0 ? 0 : Math.max(m.minute_left, 1) }
     })
   const aiNow = currentAiModel(aiModels)
-  const aiLeft = aiModels.reduce((n, m) => n + m.remaining, 0)
+  const aiLeft = aiModels.reduce((sum, m) => sum + m.left, 0)
+  const unavailable = sync?.unavailable_models.some(m => mode === 'text' || m.media) ?? false
+  const confirmedDailyLimit = aiModels.length > 0 && aiModels.every(m => m.sample?.daily_limit_reached)
+  const blockedReason = !aiModels.length || unavailable
+    ? t('目前沒有可用的 AI 模型', 'No AI model is currently available', '現在利用できるAIモデルがありません', '현재 사용할 수 있는 AI 모델이 없습니다')
+    : confirmedDailyLimit
+      ? t('Google 今日 AI 額度已用完', 'Google’s daily AI limit has been reached', 'Googleの本日のAI利用枠に達しました', 'Google의 오늘 AI 사용 한도에 도달했습니다')
+      : t('本站記錄的今日 AI 次數已達上限', 'The site’s daily AI counter has reached its limit', 'サイトの本日のAI利用回数が上限に達しました', '사이트에 기록된 오늘의 AI 사용량이 한도에 도달했습니다')
   const anyLeftToday = aiModels.some((m) => m.remaining > 0)
   // 今天還有額度、但這一分鐘全部冷卻中：顯示最短的等待秒數
   const aiWait = !aiNow && anyLeftToday ? Math.min(...aiModels.filter((m) => m.remaining > 0).map((m) => m.cooldown)) : 0
@@ -127,19 +140,21 @@ export default function Check() {
   const [aiChoice, setAiChoice] = useState('')
   // 切到圖片／影片、或選的模型用完／冷卻中時，改回自動
   const aiModel = aiModels.some((m) => m.id === aiChoice && m.remaining > 0 && m.cooldown === 0) ? aiChoice : ''
-  const autoLabel = aiNow ? t(`自動（目前 ${aiNow.label}，剩 ${aiNow.remaining} 次）`, `Auto (${aiNow.label}, ${aiNow.remaining} left)`, `自動（現在 ${aiNow.label}、残り${aiNow.remaining}回）`, `자동(현재 ${aiNow.label}, ${aiNow.remaining}회 남음)`) : ''
+  const activeSample = (aiModel ? aiModels.find(m => m.id === aiModel) : aiNow)?.sample
+  const updated = activeSample && new Date(activeSample.as_of).toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const modelOptions = aiModels.map(m => {
     const quotaLabel = m.remaining <= 0
-      ? t('今日已用完', 'daily limit reached', '本日の上限', '오늘 사용량 소진')
+      ? t('今日已達上限', 'daily limit reached', '本日の上限', '오늘 사용 한도 도달')
       : m.cooldown > 0
         ? t(`冷卻中 ${m.cooldown} 秒`, `available in ${m.cooldown}s`, `あと${m.cooldown}秒`, `${m.cooldown}초 후 가능`)
-        : t(`剩 ${m.remaining} 次`, `${m.remaining} left`, `残り${m.remaining}回`, `${m.remaining}회 남음`)
+        : m.estimate
     return {
       id: m.id,
       disabled: m.remaining <= 0 || m.cooldown > 0,
       label: m.label + t('（', ' (', '（', ' (') + quotaLabel + t('）', ')', '）', ')'),
     }
   })
+  const autoLabel = aiNow ? t(`自動（${aiNow.label}，估剩 ${aiNow.left} 次）`, `Auto (${aiNow.label}, ~${aiNow.left} left)`, `自動（${aiNow.label}、残り約${aiNow.left}回）`, `자동(${aiNow.label}, 약 ${aiNow.left}회 남음)`) : ''
   const aiBlocked = !aiNow // 今天用完，或這一分鐘全部冷卻中
   const aiOn = aiAvailable && useAi && !aiBlocked
   const googleAvailable = health?.modes.google === 'live'
@@ -391,6 +406,8 @@ export default function Check() {
           cofactsAvailable && { key: 'cofacts', label: t('送至 Cofacts 比對', 'Compare with Cofacts', 'Cofactsと照合', 'Cofacts와 대조'), sends: ['文字'], to: t('Cofacts「真的假的」查核資料庫', 'Cofacts fact-check database', 'Cofactsのファクトチェックデータベース', 'Cofacts 팩트체크 데이터베이스'), checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
           aiAvailable && { key: 'ai', label: t('使用 Gemini AI 分析', 'Analyze with Gemini AI', 'Gemini AIで分析', 'Gemini AI로 분석'), sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: t('Google Gemini（請勿上傳他人隱私）', 'Google Gemini (do not upload other people’s private information)', 'Google Gemini（他人の個人情報をアップロードしないでください）', 'Google Gemini(타인의 개인정보를 올리지 마세요)'), checked: useAi, onChange: setUseAi,
             disabled: aiBlocked,
+            note: updated ? <>{activeSample?.daily_limit_reached && t('Google 已回報這個模型今日達限。', 'Google reports this model reached its daily limit. ', 'Googleの集計ではこのモデルは本日の上限に達しました。', 'Google 집계에서 이 모델은 오늘 한도에 도달했습니다. ')}{t(`Google 用量更新於 ${updated}`, `Google usage as of ${updated}`, `Googleの利用状況の更新日時：${updated}`, `Google 사용량 갱신 시각: ${updated}`)}</>
+              : aiNow && t('次數依本站紀錄估算', 'Estimated from site usage', '回数はサイトの記録から推定', '사이트 사용 기록 기준 추정치'),
             chip: aiNow ? (
               <>
                 <span className="model-selection-label input" aria-hidden="true">{modelOptions.find(m => m.id === aiModel)?.label ?? autoLabel}</span>
@@ -402,10 +419,11 @@ export default function Check() {
               </>
             ) : aiWait > 0
               ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">{t(`使用人數較多，AI 冷卻中，${aiWait} 秒後可用`, `AI is busy. Try again in ${aiWait}s.`, `AIが混み合っています。あと${aiWait}秒で利用できます。`, `AI 사용량이 많습니다. ${aiWait}초 후 이용할 수 있습니다.`)}</span>
-              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">{t('今日 AI 額度已用完', 'Daily AI limit reached', '本日のAI利用枠を使い切りました', '오늘 AI 사용량 소진')}</span>,
+              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">{blockedReason}</span>,
             detail: (
               <p className="text-xs text-slate-600">
-                {t(`選「自動」時，免費額度用完會自動換下一個模型（共剩 ${aiLeft} 次）；自己選的模型用完也會自動往下換：`, `Auto switches to the next model when the free limit is reached (${aiLeft} uses left in total). This also applies to a model you select. Model order: `, `「自動」では無料枠を使い切ると次のモデルに切り替わります（合計残り${aiLeft}回）。手動で選んだモデルの場合も次の順に切り替わります：`, `자동 선택 시 무료 사용량이 소진되면 다음 모델로 전환합니다(전체 ${aiLeft}회 남음). 직접 선택한 모델도 다음 순서로 전환합니다: `)}{aiModels.map((m) => t(`${m.label} 剩 ${m.remaining}`, `${m.label}: ${m.remaining} left`, `${m.label} 残り${m.remaining}回`, `${m.label} ${m.remaining}회 남음`)).join(' → ')}
+                {t('自動或手選的模型達到上限時，網站會依序改用下一個模型。', 'When the automatic or selected model reaches its limit, the site tries the next model in order. ', '自動または手動で選んだモデルが上限に達すると、順に次のモデルを試します。', '자동 또는 직접 선택한 모델이 한도에 도달하면 다음 모델을 차례로 시도합니다. ')}
+                {aiModels.length > 0 && <>{t(`這些模型合計估剩 ${aiLeft} 次。`, `Estimated total across these models: ${aiLeft}. `, `これらのモデルの推定残数は合計${aiLeft}回です。`, `이 모델들의 예상 잔여 횟수는 총 ${aiLeft}회입니다. `)}{aiModels.map(m => `${m.label} · ${m.estimate}`).join(' → ')}</>}
               </p>
             ) },
           googleAvailable && { key: 'google', label: t('Google 網址安全與事實查核', 'Google URL safety and fact-checks', 'GoogleのURL安全性チェックとファクトチェック', 'Google URL 안전성 검사 및 팩트체크'), sends: ['網址', '文字'], to: t('Google 安全瀏覽、Google 事實查核搜尋', 'Google Safe Browsing and Fact Check Tools', 'Googleセーフブラウジングとファクトチェック検索', 'Google 세이프 브라우징 및 팩트체크 검색'), checked: queryGoogle, onChange: setQueryGoogle, disabled: googleQ.blocked, chip: googleQ.chip },

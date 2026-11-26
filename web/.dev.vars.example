@@ -4,6 +4,10 @@ ADMIN_PASSWORD=請改成至少12字元的密碼
 GEMINI_API_KEY=
 # 選填：Google Cloud 金鑰（Safe Browsing、Fact Check Tools）與 VirusTotal 金鑰
 GOOGLE_CLOUD_API_KEY=
+# 選填：讀取 Gemini 專案的 Cloud Monitoring 免費額度，功能開啟前才需要設定
+GOOGLE_MONITORING_PROJECT_ID=
+GOOGLE_MONITORING_CLIENT_EMAIL=
+GOOGLE_MONITORING_PRIVATE_KEY=
 VIRUSTOTAL_API_KEY=
 # 選填：Cofacts 不需要憑證也能查詢
 COFACTS_APP_ID=

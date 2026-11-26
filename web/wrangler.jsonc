@@ -25,8 +25,8 @@
       "migrations_dir": "migrations"
     }
   ],
-  // 每天 UTC 19:17（台灣早上 3:17）清除過期資料
-  "triggers": { "crons": ["17 19 * * *"] },
+  // 每天 UTC 19:17 清除過期資料。另每五分鐘檢查額度校準排程是否到期。
+  "triggers": { "crons": ["17 19 * * *", "*/5 * * * *"] },
   // 每個 IP 每分鐘的請求上限（period 只能是 10 或 60 秒）
   "ratelimits": [
     { "name": "ANALYZE_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },

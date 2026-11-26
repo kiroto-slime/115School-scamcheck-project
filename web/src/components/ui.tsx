@@ -2,27 +2,42 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { api, type Health } from '../api'
 import { useLanguage, riskLabel } from '../language'
 
-let healthCache: Promise<Health> | null = null
+let pendingHealth: Promise<Health> | null = null
+let lastHealth: Health | null = null
 const healthListeners = new Set<(h: Health) => void>()
 
-/** 重新讀取系統狀態（AI 剩餘次數、冷卻秒數會變），所有用到 useHealth 的元件一起更新 */
-export function refreshHealth() {
-  healthCache = api<Health>('/api/health')
-  healthCache.then((h) => healthListeners.forEach((fn) => fn(h))).catch(() => { healthCache = null })
+/** 只共用進行中的站內查詢，返回查核頁時重新取得剩餘次數。 */
+function readHealth() {
+  pendingHealth ??= api<Health>('/api/health').then(h => {
+    lastHealth = h
+    healthListeners.forEach(notify => notify(h))
+    return h
+  }).finally(() => { pendingHealth = null })
+  return pendingHealth
 }
 
-export function useHealth() {
+export function refreshHealth() {
+  void readHealth().catch(() => { /* 保留畫面最後一次讀取成功的狀態 */ })
+}
+
+export function useHealth(refreshOnReturn = false) {
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState(false)
   useEffect(() => {
-    healthListeners.add(setHealth)
-    healthCache ??= api<Health>('/api/health')
-    healthCache.then(setHealth).catch(() => {
-      healthCache = null
-      setError(true)
-    })
-    return () => { healthListeners.delete(setHealth) }
-  }, [])
+    let active = true
+    const receive = (value: Health) => { setHealth(value); setError(false) }
+    const load = () => { void readHealth().catch(() => { if (active) setError(true) }) }
+    const resume = () => { if (document.visibilityState === 'visible') load() }
+    healthListeners.add(receive)
+    if (!refreshOnReturn && lastHealth && !pendingHealth) receive(lastHealth)
+    else load()
+    if (refreshOnReturn) document.addEventListener('visibilitychange', resume)
+    return () => {
+      active = false
+      healthListeners.delete(receive)
+      if (refreshOnReturn) document.removeEventListener('visibilitychange', resume)
+    }
+  }, [refreshOnReturn])
   return { health, error }
 }
 

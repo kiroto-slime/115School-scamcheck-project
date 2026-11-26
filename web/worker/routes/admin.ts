@@ -6,6 +6,7 @@ import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin }
 import { clearDemo, seedDemo } from '../demo'
 import { Gemini } from '../gemini'
 import { currentModel, modelStates } from '../aimodels'
+import { adminQuota, refreshQuota, saveQuotaSchedule } from '../quota-sync'
 import { aiMode, AppSettings, saveSettings } from '../settings'
 import { computeStatistics, exportData } from '../stats'
 import { finalLevelOf, originLabel, savedResult } from '../export-format'
@@ -31,6 +32,19 @@ admin.post('/admin/login', async (c) => {
 
 const guarded = new Hono<AppEnv>()
 guarded.use('*', requireAdmin)
+guarded.get('/ai/quota', async (c) => c.json(await adminQuota(c.env, c.get('settings').gemini_models)))
+guarded.post('/ai/quota/refresh', async (c) => {
+  const models = c.get('settings').gemini_models
+  await refreshQuota(c.env, models, 'manual')
+  return c.json(await adminQuota(c.env, models))
+})
+guarded.put('/ai/quota/settings', async (c) => {
+  const b = await readBody(c, z.object({
+    interval_minutes: z.union([z.literal(5), z.literal(15), z.literal(30), z.literal(45)]),
+    auto_enabled: z.boolean(),
+  }).strict())
+  return c.json(await saveQuotaSchedule(c.env, c.get('settings').gemini_models, b.interval_minutes, b.auto_enabled))
+})
 guarded.post('/logout', async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM admin_sessions WHERE key_hash = ?').bind(c.get('sessionHash')),

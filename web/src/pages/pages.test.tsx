@@ -324,6 +324,58 @@ describe('AI 模型冷卻', () => {
     ai_models: [{ id: 'a-1', label: 'Gemini A', remaining: 20, daily: 20, media: true, minute_left: cooldown ? 0 : 5, cooldown_seconds: cooldown }] } })
   const serve = (body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })))
 
+  it('回到查核頁時讀取最新狀態；部分模型失效時不把所有額度說成已用完', async () => {
+    const old = withAi(0)
+    serve(old)
+    refreshHealth()
+    const first = render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
+    expect(await screen.findByRole('combobox', { name: '選擇 AI 模型' })).toHaveTextContent('本站估計剩 20 次')
+    first.unmount()
+    const body = { ...old, modes: { ...old.modes,
+      ai_models: [{ ...old.modes.ai_models[0], remaining: 0 }],
+      ai_quota_sync: { checked_at: null, unavailable_models: [{ media: true }], models: [] },
+    } }
+    serve(body)
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
+    expect(await screen.findByText('目前沒有可用的 AI 模型')).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: /使用 Gemini AI 分析/ })).toBeDisabled()
+  })
+
+  it('顯示個別模型的校準時間與估計值，缺少官方資料時沿用本站估計', async () => {
+    const old = withAi(0)
+    const asOf = new Date().toISOString()
+    serve({ ...old, modes: { ...old.modes,
+      ai_models: [...old.modes.ai_models, { ...old.modes.ai_models[0], id: 'b-2', label: 'Gemini B' }],
+      ai_quota_sync: { checked_at: asOf, unavailable_models: [],
+        models: [{ id: 'a-1', as_of: asOf, estimated_remaining: 11, daily_limit_reached: false }] },
+    } })
+    refreshHealth()
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
+    const select = await screen.findByRole<HTMLSelectElement>('combobox', { name: '選擇 AI 模型' })
+    expect(select).toHaveTextContent('校準後估剩 11 次')
+    expect(screen.getByText(/Google 用量更新於/)).toBeVisible()
+    await userEvent.selectOptions(select, 'b-2')
+    expect(select.selectedOptions[0]).toHaveTextContent('本站估計剩 20 次')
+    expect(screen.queryByText(/Google 用量更新於/)).toBeNull()
+  })
+
+  it('只有相容模型的 Google 每日用量都達限時，才歸因為 Google 額度已用完', async () => {
+    const body = withAi(0)
+    const asOf = new Date().toISOString()
+    const modes = { ...body.modes, ai_models: [{ ...body.modes.ai_models[0], remaining: 0 }] }
+    serve({ ...body, modes })
+    render(<MemoryRouter><Check /></MemoryRouter>)
+    await userEvent.click(screen.getByText('查核設定'))
+    expect(await screen.findByText('本站記錄的今日 AI 次數已達上限')).toBeVisible()
+    serve({ ...body, modes: { ...modes, ai_quota_sync: { checked_at: asOf, unavailable_models: [],
+      models: [{ id: 'a-1', as_of: asOf, estimated_remaining: 0, daily_limit_reached: true }] } } })
+    fireEvent(document, new Event('visibilitychange'))
+    expect(await screen.findByText('Google 今日 AI 額度已用完')).toBeVisible()
+  })
+
   it('沒有冷卻時不會閃爍（勾選框一直可用）', async () => {
     serve(withAi(0))
     refreshHealth()

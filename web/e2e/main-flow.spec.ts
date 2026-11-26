@@ -377,7 +377,7 @@ test('桌面與大字模式能完整顯示目前的 AI 模型選項', async ({ p
   await page.goto('/check')
   await page.locator('#service-settings > summary').click()
   const model = page.getByLabel('選擇 AI 模型', { exact: true })
-  await expect(model).toContainText('自動（目前 Gemini 3.8 Flash，剩 8 次）')
+  await expect(model).toContainText('自動（Gemini 3.8 Flash，估剩 8 次）')
   for (const large of [false, true]) {
     if (large) {
       await page.getByRole('button', { name: /文字大小：小/ }).click()
