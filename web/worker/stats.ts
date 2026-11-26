@@ -92,6 +92,19 @@ export async function computeStatistics(db: D1Database, demo: boolean) {
 
 export interface Sheet { name: string; headers: string[]; dateColumns: number[]; rows: (string | number | boolean | null)[][] }
 
+/** 每次匯出重新編碼，同一筆資料在各工作表有相同的對照碼。 */
+function workbookCodes(prefix: string) {
+  const codes = new Map<string, string>()
+  return (id: string | null): string | null => {
+    if (!id) return null
+    const existing = codes.get(id)
+    if (existing) return existing
+    const code = `${prefix}-${codes.size + 1}`
+    codes.set(id, code)
+    return code
+  }
+}
+
 /** Excel 匯出用的資料（由瀏覽器端組成 .xlsx）。不含原始投稿或個資。 */
 export async function exportData(db: D1Database, demo: boolean): Promise<{ sheets: Sheet[]; exported_at: string; label: string }> {
   const d = demo ? 1 : 0
@@ -108,6 +121,8 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
     ORDER BY c.consent_time`).bind(d, d).all<any>().then((r) => r.results)
   const surveys = await q<any>('SELECT * FROM product_survey_responses WHERE is_demo = ? ORDER BY created_at')
   const yn = yesNo
+  const checkCode = workbookCodes('查核')
+  const participantCode = workbookCodes('參與者')
 
   const st = await computeStatistics(db, demo)
   const analysisOrigins = new Map(analyses.map((a) => [a.analysis_id, originLabel(savedResult(a.result_json), !!a.is_demo)]))
@@ -137,22 +152,22 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
       rows: analyses.map(readableAnalysis) },
     { name: '統計總覽', dateColumns: [], headers: ['指標', '數值'], rows: summary },
     { name: '分析紀錄', dateColumns: [3],
-      headers: ['資料來源', '分析編號', '研究編號', '建立時間(UTC)', '媒體類型', 'Cofacts比對篇數', '規則風險指數', '規則風險等級', '綜合風險等級', '風險特徵', '分析狀態', '規則版本', '使用外部AI', '同意研究', '同意衍生使用', '完整規則依據'],
-      rows: analyses.map((a) => [originLabel(savedResult(a.result_json), !!a.is_demo), a.analysis_id, a.research_id_nullable, a.created_at, zh(a.media_type, MEDIA_ZH), a.source_count, a.risk_score_nullable, a.risk_level, finalLevelOf(a.risk_level, a.result_json),
+      headers: ['資料來源', '查核對照碼', '參與者對照碼', '建立時間(UTC)', '媒體類型', 'Cofacts比對篇數', '規則風險指數', '規則風險等級', '綜合風險等級', '風險特徵', '分析狀態', '規則版本', '使用外部AI', '同意研究', '同意衍生使用', '完整規則依據'],
+      rows: analyses.map((a) => [originLabel(savedResult(a.result_json), !!a.is_demo), checkCode(a.analysis_id), participantCode(a.research_id_nullable), a.created_at, zh(a.media_type, MEDIA_ZH), a.source_count, a.risk_score_nullable, a.risk_level, finalLevelOf(a.risk_level, a.result_json),
         stringsOf(parseJson<unknown>(a.risk_tags_json, [])).map((s) => zh(s, FEATURE_ZH)).join('、'), zh(a.analysis_status, STATUS_ZH), a.rule_version, yn(a.external_ai_used), yn(a.consent_research), yn(a.consent_secondary_use), stringsOf(savedResult(a.result_json).basis).map(exportText).join('\n')]) },
     { name: '查核來源', dateColumns: [9],
-      headers: ['資料類型', '來源結果編號', '分析編號', '來源', '結果狀態', '比對類型', '來源標題', '來源網址', '查核回覆類型', '查核時間', '授權'],
-      rows: sources.map((s) => [analysisOrigins.get(s.analysis_id) ?? '來源待確認', s.source_result_id, s.analysis_id, zh(s.provider, PROVIDER_ZH), zh(s.result_status, STATUS_ZH), zh(s.match_type, MATCH_ZH), exportText(s.source_title), s.source_url, zh(s.reply_type, REPLY_ZH), s.checked_at, s.license_tag]) },
+      headers: ['資料類型', '來源結果編號', '查核對照碼', '來源', '結果狀態', '比對類型', '來源標題', '來源網址', '查核回覆類型', '查核時間', '授權'],
+      rows: sources.map((s) => [analysisOrigins.get(s.analysis_id) ?? '來源待確認', s.source_result_id, checkCode(s.analysis_id), zh(s.provider, PROVIDER_ZH), zh(s.result_status, STATUS_ZH), zh(s.match_type, MATCH_ZH), exportText(s.source_title), s.source_url, zh(s.reply_type, REPLY_ZH), s.checked_at, s.license_tag]) },
     { name: '研究作答', dateColumns: [14],
-      headers: ['資料類型', '作答編號', '研究編號', '實驗組別', '案例編號', '階段', '使用者判斷', '自述理由代碼', '是否正確', '錯誤類型', '作答時間(毫秒)', '輔助方式', '系統顯示特徵', '研究者人工分類', '建立時間'],
-      rows: responses.map((r) => [tag, r.response_id, r.research_id, `${r.experiment_group}組（${zh(r.experiment_group === 'A' ? 'general_tips' : r.experiment_group === 'B' ? 'system_evidence' : r.experiment_group, ASSIST_ZH)}）`, r.case_id, zh(r.phase, PHASE_ZH), zh(r.user_decision, DECISION_ZH), zh(r.decision_reason_code, REASON_ZH), yn(r.correctness),
+      headers: ['資料類型', '作答編號', '參與者對照碼', '實驗組別', '案例編號', '階段', '使用者判斷', '自述理由代碼', '是否正確', '錯誤類型', '作答時間(毫秒)', '輔助方式', '系統顯示特徵', '研究者人工分類', '建立時間'],
+      rows: responses.map((r) => [tag, r.response_id, participantCode(r.research_id), `${r.experiment_group}組（${zh(r.experiment_group === 'A' ? 'general_tips' : r.experiment_group === 'B' ? 'system_evidence' : r.experiment_group, ASSIST_ZH)}）`, r.case_id, zh(r.phase, PHASE_ZH), zh(r.user_decision, DECISION_ZH), zh(r.decision_reason_code, REASON_ZH), yn(r.correctness),
         zh(r.error_type, ERROR_ZH, '無錯誤或未判定'), r.response_time_ms, zh(r.assistance_used, ASSIST_ZH), stringsOf(parseJson<unknown>(r.system_triggers_json, [])).map((s) => zh(s, FEATURE_ZH)).join('、'), zh(r.researcher_category, CATEGORY_ZH, '未分類'), r.created_at]) },
     { name: '風險模式資料集', dateColumns: [],
       headers: ['模式編號', '詐騙類型', '心理誘因', '風險指標', '防範方式', '驗證狀態', '證據來源', '來源授權', '人工審核狀態', '資料集版本'],
       rows: patterns.map((p) => [p.pattern_id, p.scam_category, p.psychological_trigger, p.risk_indicators, p.prevention_method, zh(p.verification_status, REVIEW_ZH), p.evidence_source, p.source_license, zh(p.human_review_status, REVIEW_ZH), p.dataset_version]) },
     { name: '同意紀錄', dateColumns: [6, 7],
-      headers: ['資料類型', '同意編號', '研究編號', '目的', '同意書版本', '狀態', '同意時間', '撤回時間'],
-      rows: consents.map((c) => [c.is_demo ? '原分類 DEMO（可能連結使用者查核）' : '原分類正式', c.consent_id, c.research_id, zh(c.purpose, CONSENT_ZH), c.consent_version, zh(c.consent_status, CONSENT_ZH), c.consent_time, c.withdrawal_time]) },
+      headers: ['資料類型', '同意編號', '參與者對照碼', '目的', '同意書版本', '狀態', '同意時間', '撤回時間'],
+      rows: consents.map((c) => [c.is_demo ? '原分類 DEMO（可能連結使用者查核）' : '原分類正式', c.consent_id, participantCode(c.research_id), zh(c.purpose, CONSENT_ZH), c.consent_version, zh(c.consent_status, CONSENT_ZH), c.consent_time, c.withdrawal_time]) },
     { name: '產品需求問卷', dateColumns: [11],
       headers: ['資料類型', '問卷編號', '身分', '產品', '價值評分(1-5)', '最需要功能', '教師願意課堂使用', '口頭興趣', '試用意願', '付款意願', '可接受價格', '建立時間'],
       rows: surveys.map((s) => [tag, s.survey_id, zh(s.respondent_role, ROLE_ZH), zh(s.product, PRODUCT_ZH), s.perceived_value, zh(s.most_needed_feature, NEED_ZH), yn(s.teacher_would_use), yn(s.verbal_interest),
@@ -167,11 +182,12 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
       ['查無資料', '來源查無資料、未列名單或未發現威脅，都不代表安全。'],
       ['時間', '查核摘要的時間為臺灣時間；其他頁的日期欄位使用 UTC，臺灣時間為 UTC 加 8 小時。'],
       ['代碼與布林', '常用代碼已轉為中文，是／否表示原有布林值；未知代碼保留「未定義代碼」供追溯，不猜測意思。'],
-      ['資料缺漏', '舊紀錄可能沒有摘要、原因或建議，缺少時清楚標示；完整編號與原始特徵代碼保留於技術欄位頁供對照。'],
+      ['工作表對照', '查核對照碼與參與者對照碼供同一份檔案內比對。同一人或同一筆查核在另一次匯出時，對照碼可能不同。'],
+      ['資料缺漏', '舊紀錄可能沒有摘要、原因或建議，缺少時清楚標示。原始特徵代碼保留於技術欄位頁供對照。'],
     ] },
     { name: '技術欄位', dateColumns: [2],
-      headers: ['分析編號', '研究編號', '建立時間(UTC)', '規則版本', '規則風險指數', '規則風險等級', '風險特徵原始代碼', '分析狀態原始代碼', '同意研究', '同意衍生使用', '教材使用提醒'],
-      rows: analyses.map(technicalRow) },
+      headers: ['查核對照碼', '參與者對照碼', '建立時間(UTC)', '規則版本', '規則風險指數', '規則風險等級', '風險特徵原始代碼', '分析狀態原始代碼', '同意研究', '同意衍生使用', '教材使用提醒'],
+      rows: analyses.map(a => technicalRow(a, checkCode(a.analysis_id), participantCode(a.research_id_nullable))) },
   ]
   return { sheets, exported_at: new Date().toISOString(), label: demo ? 'DEMO／舊查核待確認' : '使用者查核／正式研究' }
 }

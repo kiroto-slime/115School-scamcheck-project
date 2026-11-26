@@ -500,12 +500,30 @@ function Tw165Updater({ call, onDone, onError }: { call: Call; onDone: (s: strin
       if (map.size < 1000) throw new Error('檔案內的網域太少，可能下載不完整，請重新下載。')
       setBusy(`整理 ${map.size.toLocaleString()} 個網域中…`)
       const chunks = await buildUploadChunks(map)
-      for (let i = 0; i < chunks.length; i++) {
-        setBusy(`上傳中（${i + 1}/${chunks.length}）…`)
-        if (!(await call('/api/admin/tw165/shards', { method: 'PUT', body: chunks[i] }))) return
+      const upload = await call<{ version: string }>('/api/admin/tw165/uploads', {
+        method: 'POST', body: JSON.stringify({ hashes: chunks.map(part => part.hash) }),
+      })
+      if (!upload) return
+      // 各區的 KV 需要時間同步，只在伺服器表示仍在同步時重試。
+      const put = async (url: string, body: string) => {
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const response = await call<{ pending?: boolean }>(url, { method: 'PUT', body })
+          if (!response) return false
+          if (!response.pending) return true
+          await new Promise(resolve => setTimeout(resolve, 4000))
+        }
+        throw new Error('名單同步時間較長，目前仍使用原名單。請稍後再更新。')
       }
-      if (await call('/api/admin/tw165/meta', { method: 'PUT', body: JSON.stringify({ count: map.size, sources }) })) {
-        onDone(`165 名單已更新：${map.size.toLocaleString()} 個網域，立即生效`)
+      const query = `?version=${encodeURIComponent(upload.version)}`
+      for (let i = 0; i < chunks.length; i += 4) {
+        setBusy(`上傳中（${i}/${chunks.length}）…`)
+        const saved = await Promise.all(chunks.slice(i, i + 4).map(part =>
+          put(`/api/admin/tw165/shards${query}&key=${part.key}`, part.body)))
+        if (!saved.every(Boolean)) return
+      }
+      setBusy('確認分片與筆數中…')
+      if (await put('/api/admin/tw165/meta' + query, JSON.stringify({ count: map.size, sources }))) {
+        onDone(`165 名單已發布，共 ${map.size.toLocaleString()} 個網域。`)
         setFiles([])
         load()
       }
@@ -524,7 +542,7 @@ function Tw165Updater({ call, onDone, onError }: { call: Call; onDone: (s: strin
       <ol className="list-decimal space-y-1 pl-5 text-sm">
         <li>下載政府最新資料：{TW165_DATASETS.map((d, i) => <span key={d.code}>{i > 0 && '、'}<a href={d.download} rel="noopener noreferrer">{d.code === 's' ? '涉詐網站' : '假投資網站'} CSV</a></span>)}</li>
         <li>選擇剛下載的兩個檔案（可一次選兩個）</li>
-        <li>按「更新名單」，約 10 秒，完成後立即生效</li>
+        <li>按「更新名單」，等候檢查完全部分片後發布。</li>
       </ol>
       <input type="file" accept=".csv,text/csv" multiple className="block w-full text-sm" onChange={(e) => setFiles([...(e.target.files ?? [])])} />
       <button className="btn-primary" disabled={!files.length || Boolean(busy)} onClick={update}>{busy ?? '更新名單'}</button>

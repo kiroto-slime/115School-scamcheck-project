@@ -7,6 +7,7 @@
  */
 import { VT_PER_MINUTE, vtMinuteName } from './quotas'
 import { sleep, takeDailyQuota } from './util'
+import { activeTw165Upload, uploadedShardKey } from './tw165-upload'
 
 const URL_RE = /(?:https?:\/\/|www\.)[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi
 /** 沒有 http 開頭的網域（例：abc.shop）；前面不能是 @（避免抓到 Email） */
@@ -81,6 +82,7 @@ export interface Tw165Meta {
   available: boolean
   /** build：部署時內建；upload：管理員從管理頁上傳 */
   origin?: 'build' | 'upload'
+  version?: string
   updated_at?: string
   count?: number
   sources?: { code: string; name: string; page: string; rows: number }[]
@@ -113,8 +115,8 @@ async function readAsset<T>(env: Env, path: string): Promise<T | null> {
       return null
     }
     return (await r.json()) as T
-  } catch (e) {
-    console.warn('tw165 asset error', path, String(e))
+  } catch {
+    console.warn('tw165 asset error', path)
     return null
   }
 }
@@ -129,7 +131,16 @@ async function readKv<T>(env: Env, key: string): Promise<T | null> {
 
 /** 部署內建與管理員上傳兩份名單，用比較新的那份 */
 export async function tw165Meta(env: Env): Promise<Tw165Meta> {
-  const [built, uploaded] = await Promise.all([readAsset<Tw165Meta>(env, 'meta.json'), readKv<Tw165Meta>(env, 'meta')])
+  let built: Tw165Meta | null, uploaded: Tw165Meta | null
+  try {
+    [built, uploaded] = await Promise.all([
+      readAsset<Tw165Meta>(env, 'meta.json'),
+      activeTw165Upload(env.DB).then(active => active ?? env.TW165.get<Tw165Meta>('meta', 'json')),
+    ])
+  } catch {
+    // 無法確認目前發布的版本時，避免用舊版本產生「未列入」結論。
+    return { available: false }
+  }
   const b = built?.available ? { ...built, origin: 'build' as const } : null
   const u = uploaded?.available ? { ...uploaded, origin: 'upload' as const } : null
   if (b && u) return (u.updated_at ?? '') >= (b.updated_at ?? '') ? u : b
@@ -137,7 +148,9 @@ export async function tw165Meta(env: Env): Promise<Tw165Meta> {
 }
 
 const readShard = (env: Env, meta: Tw165Meta, key: string) =>
-  meta.origin === 'upload' ? readKv<Record<string, [string, string, string]>>(env, `shard:${key}`) : readAsset<Record<string, [string, string, string]>>(env, `${key}.json`)
+  meta.origin === 'upload'
+    ? readKv<Record<string, [string, string, string]>>(env, meta.version ? uploadedShardKey(meta.version, key) : `shard:${key}`)
+    : readAsset<Record<string, [string, string, string]>>(env, `${key}.json`)
 
 export async function tw165Lookup(env: Env, urls: FoundUrl[]): Promise<Tw165Result> {
   const meta = await tw165Meta(env)
@@ -146,20 +159,23 @@ export async function tw165Lookup(env: Env, urls: FoundUrl[]): Promise<Tw165Resu
   if (!urls.length) return { status: 'no_url', matches: [], updated_at: updated, message: '訊息中沒有網址，未比對 165 名單。' }
   const shards = new Map<string, Record<string, [string, string, string]> | null>()
   const matches: Tw165Match[] = []
+  let incomplete = false
   for (const { host } of urls) {
     for (const cand of candidates(host)) {
       const key = (await sha256Hex(cand)).slice(0, 2)
       if (!shards.has(key)) shards.set(key, await readShard(env, meta, key))
-      const hit = shards.get(key)?.[cand]
-      if (hit) {
-        matches.push({ host_masked: maskHost(host), lists: [...hit[0]].map((c) => TW165_SOURCE_NAME[c] ?? c), month: hit[1], category: hit[2] })
-        break
-      }
+      const part = shards.get(key)
+      if (!part || typeof part !== 'object' || Array.isArray(part)) { incomplete = true; continue }
+      if (!Object.hasOwn(part, cand)) continue
+      const hit = part[cand]
+      if (!Array.isArray(hit) || hit.length !== 3 || !hit.every(v => typeof v === 'string')) { incomplete = true; continue }
+      matches.push({ host_masked: maskHost(host), lists: [...hit[0]].map((c) => TW165_SOURCE_NAME[c] ?? c), month: hit[1], category: hit[2] })
+      break
     }
   }
-  return matches.length
-    ? { status: 'listed', matches, updated_at: updated, message: `有 ${matches.length} 個網址列在警政署 165 涉詐網站名單中，請不要開啟。` }
-    : { status: 'not_listed', matches: [], updated_at: updated, message: '網址不在 165 涉詐網站名單中（不在名單上不代表安全，新的詐騙網站常常還沒被列入）。' }
+  if (matches.length) return { status: 'listed', matches, updated_at: updated, message: `有 ${matches.length} 個網址列在警政署 165 涉詐網站名單中，請不要開啟。${incomplete ? '部分名單暫時讀取失敗。' : ''}` }
+  if (incomplete) return { status: 'unavailable', matches: [], updated_at: updated, message: '部分 165 名單暫時無法讀取，這次比對未完成，請稍後再查。' }
+  return { status: 'not_listed', matches: [], updated_at: updated, message: '網址不在 165 涉詐網站名單中（不在名單上不代表安全，新的詐騙網站常常還沒被列入）。' }
 }
 
 // ---------- 外部服務共用 ----------
@@ -213,9 +229,9 @@ export async function safeBrowsingLookup(env: Env, urls: FoundUrl[], dailyLimit:
   if (!urls.length) return ext('no_url', '訊息中沒有網址。')
   if (!(await takeDailyQuota(env.DB, 'safe_browsing', dailyLimit))) return ext('rate_limited', '今日 Google 查詢次數已達上限。')
   try {
-    const r = await fetchRetry(opts.fetcher ?? defaultFetch, `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${encodeURIComponent(env.GOOGLE_CLOUD_API_KEY)}`, {
+    const r = await fetchRetry(opts.fetcher ?? defaultFetch, 'https://safebrowsing.googleapis.com/v4/threatMatches:find', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GOOGLE_CLOUD_API_KEY },
       body: JSON.stringify({
         client: { clientId: 'scamcheck', clientVersion: '0.2' },
         threatInfo: {

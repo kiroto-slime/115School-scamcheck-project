@@ -2,6 +2,7 @@
  * 識詐數據庫 Worker 入口：/api/* 由這裡處理，其他路徑由 Cloudflare 靜態資產（React 網頁）處理。
  */
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { purgeExpired } from './analysis'
 import type { AppEnv } from './auth'
 import { GeminiError } from './gemini'
@@ -13,6 +14,7 @@ import { opinions } from './routes/opinions'
 import { RULE_VERSION } from './rules'
 import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
 import { tw165Meta } from './urlcheck'
+import { cleanupTw165Uploads } from './tw165-upload'
 import { currentModel, modelStates } from './aimodels'
 import { serviceQuotas } from './quotas'
 import { HttpError } from './util'
@@ -20,12 +22,27 @@ export { TextCheck } from './text-check'
 
 export const app = new Hono<AppEnv>().basePath('/api')
 
+const formLimit = bodyLimit({ maxSize: 128 * 1024, onError: () => { throw new HttpError(413, '表單內容過大，請縮短後再送出。') } })
+const imageLimit = bodyLimit({
+  maxSize: Math.ceil(LIMITS.maxImageMb * 1024 * 1024 * 4 / 3) + 128 * 1024,
+  onError: () => { throw new HttpError(413, '圖片過大，請縮小圖片後再送出。') },
+})
+
 app.use('*', async (c, next) => {
-  c.set('settings', await getSettings(c.env.DB))
-  await next()
   c.header('Cache-Control', 'no-store')
   c.header('X-Content-Type-Options', 'nosniff')
   c.header('Referrer-Policy', 'no-referrer')
+  c.header('Strict-Transport-Security', 'max-age=31536000')
+  // 檔案串流、文字查核、名單分片及短心得，由各自的路由核對大小。
+  const path = c.req.path
+  if (path === '/api/analyze/image') return imageLimit(c, next)
+  if (path === '/api/media/video' || path === '/api/analyze/text' || path === '/api/admin/tw165/shards' || path === '/api/result-opinions') return next()
+  return formLimit(c, next)
+})
+
+app.use('*', async (c, next) => {
+  c.set('settings', await getSettings(c.env.DB))
+  await next()
 })
 
 app.get('/health', async (c) => {
@@ -65,7 +82,7 @@ app.route('/', admin)
 app.notFound((c) => c.json({ detail: '找不到 API。' }, 404))
 app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ detail: err.message }, err.status as 400)
-  if (err instanceof GeminiError) return c.json({ detail: err.message }, 502)
+  if (err instanceof GeminiError) return c.json({ detail: 'AI 服務暫時無法完成處理，請稍後再試。' }, 502)
   console.error('查核服務發生未預期錯誤') // 例外內容可能帶有查核文字或外部服務資訊
   return c.json({ detail: '伺服器發生錯誤，請稍後再試。' }, 500)
 })
@@ -74,10 +91,17 @@ export default {
   fetch: app.fetch,
   // 每日排程：清除過期的暫存分析紀錄
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(env.DB.batch([
-      env.DB.prepare("DELETE FROM text_jobs WHERE julianday(created_at) < julianday('now','-30 days')"),
-      env.DB.prepare("DELETE FROM result_opinions WHERE keep_until < date('now','+8 hours')"),
-    ]))
-    ctx.waitUntil(getSettings(env.DB).then((s) => purgeExpired(env.DB, s)))
+    ctx.waitUntil(Promise.all([
+      env.DB.batch([
+        env.DB.prepare("DELETE FROM text_jobs WHERE julianday(created_at) < julianday('now','-30 days')"),
+        env.DB.prepare("DELETE FROM result_opinions WHERE keep_until < date('now','+8 hours')"),
+        env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(Date.now()),
+      ]),
+      getSettings(env.DB).then((s) => purgeExpired(env.DB, s)),
+      cleanupTw165Uploads(env),
+    ]).catch(() => {
+      // 使用固定事件名稱，方便維護者設定告警，也避免把資料庫訊息寫入日誌。
+      throw new Error('scheduled_cleanup_failed')
+    }))
   },
 } satisfies ExportedHandler<Env>

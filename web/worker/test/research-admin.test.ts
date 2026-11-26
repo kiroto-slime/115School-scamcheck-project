@@ -58,7 +58,9 @@ describe('研究流程', () => {
     const base = { research_id: s.research_id, decision_reason_code: 'link', response_time_ms: 100 }
     expect((await call('/api/research/answer', { body: { ...base, case_id: s.post_case.case_id, phase: 'post_initial', user_decision: 'scam' } })).status).toBe(409)
     const ok = { ...base, case_id: s.pre_case.case_id, phase: 'pre', user_decision: 'scam' }
-    expect((await call('/api/research/answer', { body: ok })).status).toBe(200)
+    const responses = await Promise.all([call('/api/research/answer', { body: ok }), call('/api/research/answer', { body: ok })])
+    expect(responses.map(r => r.status).sort()).toEqual([200, 409])
+    expect(await count('research_responses')).toBe(1)
     expect((await call('/api/research/answer', { body: ok })).status).toBe(409)
   })
 
@@ -67,10 +69,31 @@ describe('研究流程', () => {
     expect(await count('research_responses')).toBe(3)
     expect((await call('/api/consent', { body: { research_id: rid, purpose: 'research', status: 'withdrawn' } })).status).toBe(200)
     expect((await call('/api/research/assistance', { body: { research_id: rid } })).status).toBe(404)
+    expect((await call('/api/feedback', { body: { research_id: rid, rating: 4 } })).status).toBe(404)
+    expect((await call('/api/consent', { body: { research_id: rid, purpose: 'secondary_use', status: 'granted' } })).status).toBe(400)
     const d = await call('/api/privacy/delete', { body: { research_id: rid } })
     expect(d.json.deleted.research_responses).toBe(3)
     expect(await count('research_responses')).toBe(0)
     expect(await count('consent_records', `research_id = '${rid}' AND consent_status = 'granted'`)).toBe(0)
+  })
+
+  it('刪除同一研究編號的查核評價，保留其他查核的評價，稽核不留操作編號', async () => {
+    const rid = (await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })).json.research_id
+    const linked = (await call('/api/analyze/text', { body: { text: SCAM, research_id: rid } })).json.analysis_id
+    const other = (await call('/api/analyze/text', { body: { text: SCAM } })).json.analysis_id
+    for (const feedback of [{ analysis_id: linked }, { research_id: rid }, { analysis_id: other }]) {
+      expect((await call('/api/feedback', { body: { ...feedback, helpful: true } })).status).toBe(200)
+    }
+    const [deleted, rating] = await Promise.all([
+      call('/api/privacy/delete', { body: { research_id: rid } }),
+      call('/api/feedback', { body: { analysis_id: linked, helpful: false } }),
+    ])
+    expect([200, 404]).toContain(rating.status)
+    expect(deleted.json.deleted).toMatchObject({ feedback: rating.status === 200 ? 3 : 2, analysis_records: 1 })
+    expect((await env.DB.prepare('SELECT analysis_id FROM feedback_records').all()).results).toEqual([{ analysis_id: other }])
+    const audit = await env.DB.prepare("SELECT target,detail FROM audit_logs WHERE action = 'privacy_delete'").first()
+    expect(audit).toMatchObject({ target: null })
+    expect(JSON.stringify(audit)).not.toContain(rid)
   })
 
   it('同意研究的查核紀錄會連結研究編號；撤回後不再連結', async () => {
@@ -141,7 +164,7 @@ describe('管理員', () => {
   })
 
   it('匯出資料：完成一位參與者後有一筆有效樣本，標示 DEMO', async () => {
-    await fullFlow()
+    const rid = await fullFlow()
     const h = await adminHeaders()
     const ex = (await call('/api/admin/export-data?dataset=demo', { headers: h })).json
     const responses = ex.sheets.find((s: { name: string }) => s.name === '研究作答')
@@ -149,6 +172,9 @@ describe('管理員', () => {
     expect(responses.rows[0][0]).toBe('模擬研究（DEMO）')
     expect(responses.rows[0][5]).toBe('前測（無輔助）')
     expect(responses.rows[0][6]).toBe('可能是詐騙')
+    const consent = ex.sheets.find((s: { name: string }) => s.name === '同意紀錄').rows[0]
+    expect(responses.rows.every((r: unknown[]) => r[2] === consent[2])).toBe(true)
+    expect(JSON.stringify(ex)).not.toContain(rid)
     expect(Object.fromEntries(ex.sheets.find((s: { name: string }) => s.name === '統計總覽').rows)['有效樣本數（完成前後測）']).toBe(1)
   })
 
@@ -184,9 +210,16 @@ describe('管理員', () => {
     expect(row['各來源查核結果']).toContain('找到相關資料')
     const tech = ex.sheets.find((s: { name: string }) => s.name === '技術欄位')
     expect(ex.sheets[ex.sheets.length - 1].name).toBe('技術欄位')
-    expect(tech.headers).toEqual(['分析編號', '研究編號', '建立時間(UTC)', '規則版本', '規則風險指數', '規則風險等級', '風險特徵原始代碼', '分析狀態原始代碼', '同意研究', '同意衍生使用', '教材使用提醒'])
+    expect(tech.headers).toEqual(['查核對照碼', '參與者對照碼', '建立時間(UTC)', '規則版本', '規則風險指數', '規則風險等級', '風險特徵原始代碼', '分析狀態原始代碼', '同意研究', '同意衍生使用', '教材使用提醒'])
     const trow = Object.fromEntries(tech.headers.map((k: string, i: number) => [k, tech.rows[0][i]]))
-    expect(trow['分析編號']).toBe(a.analysis_id)
+    expect(trow['查核對照碼']).toMatch(/^查核-\d+$/)
+    const records = ex.sheets.find((s: { name: string }) => s.name === '分析紀錄').rows
+    const sources = ex.sheets.find((s: { name: string }) => s.name === '查核來源').rows
+    expect(records[0].slice(1, 3)).toEqual([trow['查核對照碼'], trow['參與者對照碼']])
+    expect(sources.length).toBeGreaterThan(0)
+    expect(sources.every((r: unknown[]) => r[2] === trow['查核對照碼'])).toBe(true)
+    expect(JSON.stringify(ex)).not.toContain(a.analysis_id)
+    expect(JSON.stringify(ex)).not.toContain(rid)
     expect(trow['教材使用提醒']).toContain('未同意衍生使用')
     expect(JSON.stringify(ex)).not.toMatch(/0912-345-678|a@example.com|private\.example/)
     expect(JSON.stringify(ex)).not.toContain(other.analysis_id)
@@ -226,7 +259,9 @@ describe('管理員', () => {
     expect(await env.DB.prepare('SELECT is_demo FROM feedback_records WHERE analysis_id = ?').bind(a.analysis_id).first()).toMatchObject({ is_demo: 0 })
     const h = await adminHeaders()
     const ex = (await call('/api/admin/export-data?dataset=formal', { headers: h })).json
-    expect(ex.sheets.find((s: { name: string }) => s.name === '同意紀錄').rows.some((r: unknown[]) => r[2] === rid)).toBe(true)
+    const participantCode = ex.sheets.find((s: { name: string }) => s.name === '分析紀錄').rows[0][2]
+    expect(participantCode).toMatch(/^參與者-\d+$/)
+    expect(ex.sheets.find((s: { name: string }) => s.name === '同意紀錄').rows.some((r: unknown[]) => r[2] === participantCode)).toBe(true)
     expect(ex.sheets.find((s: { name: string }) => s.name === '研究作答').rows).toEqual([])
     expect((await call('/api/admin/statistics?dataset=formal', { headers: h })).json.analysis_records).toBe(1)
     expect((await call('/api/health')).json.modes.research_mode).toBe('simulation')

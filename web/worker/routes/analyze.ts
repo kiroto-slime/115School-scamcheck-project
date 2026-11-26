@@ -73,11 +73,11 @@ analyze.post('/analyze/image', async (c) => {
 /** 影片第一步：原始檔串流轉送到 Gemini Files API，回傳簽章過的 media_ref */
 analyze.post('/media/video', async (c) => {
   await rateLimit(c, 'ANALYZE_LIMITER')
-  if (aiMode(c.env) !== 'gemini') throw new HttpError(400, '網站尚未設定 Gemini，無法分析影片內容；請改在補充文字輸入影片重點。')
+  if (!c.env.GEMINI_API_KEY?.trim()) throw new HttpError(400, '網站尚未設定 Gemini，無法分析影片內容；請改在補充文字輸入影片重點。')
   const mime = (c.req.header('Content-Type') ?? '').split(';')[0].trim()
   if (mime !== 'video/mp4' && mime !== 'video/quicktime') throw new HttpError(415, '影片格式不支援，請上傳 MP4 或 MOV。')
   const size = Number(c.req.header('Content-Length') ?? 0)
-  if (!size) throw new HttpError(411, '缺少檔案大小資訊，請重新上傳。')
+  if (!Number.isSafeInteger(size) || size <= 0) throw new HttpError(411, '缺少有效的檔案大小資訊，請重新上傳。')
   if (size > LIMITS.maxVideoMb * 1024 * 1024) throw new HttpError(413, `檔案超過 ${LIMITS.maxVideoMb} MB 上限，請壓縮或裁切後再上傳。`)
   const body = c.req.raw.body
   if (!body) throw new HttpError(400, '檔案是空的，請重新選擇。')
@@ -120,18 +120,19 @@ analyze.post('/analyze/video', async (c) => {
   if (b.media_ref && !ref) throw new HttpError(400, '影片上傳憑證無效或已過期，請重新上傳。')
   const notes: string[] = []
   const gemini = new Gemini(env, s.gemini_models[0]?.id ?? 'gemini')
+  const fileForAnalysis = b.use_ai ? ref : null
   try {
-    if (ref) {
-      await gemini.waitActive(ref.name)
-      notes.push('影片已送交 Gemini 分析畫面與聲音，分析完成後即刪除 Google 上的檔案。')
+    if (fileForAnalysis) {
+      await gemini.waitActive(fileForAnalysis.name)
+      notes.push('影片已送交 Gemini 分析畫面與聲音，處理結束後系統會要求 Google 刪除檔案。')
     } else {
       notes.push('沒有使用 AI，未分析影片畫面與語音；以下只分析你輸入的補充文字。')
       if (!b.extra_text.trim()) return c.json({ needs_manual_text: true, media: { notes }, message: '請在「補充文字」輸入影片中的文字或旁白重點。' })
     }
     return c.json(await runAnalysis(env, s, {
-      text: b.extra_text, mediaType: 'video', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: Boolean(ref) && b.use_ai,
-      aiMedia: ref && b.use_ai ? [{ kind: 'video', mime: ref.mime, uri: ref.uri }] : [],
-      mediaInfo: { notes, used_manual_text: Boolean(b.extra_text.trim()), duration_seconds: b.duration_seconds ?? null, ocr_status: ref ? 'gemini' : 'unavailable' },
+      text: b.extra_text, mediaType: 'video', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: Boolean(fileForAnalysis),
+      aiMedia: fileForAnalysis ? [{ kind: 'video', mime: fileForAnalysis.mime, uri: fileForAnalysis.uri }] : [],
+      mediaInfo: { notes, used_manual_text: Boolean(b.extra_text.trim()), duration_seconds: b.duration_seconds ?? null, ocr_status: fileForAnalysis ? 'gemini' : 'unavailable' },
     }))
   } finally {
     if (ref) c.executionCtx.waitUntil(gemini.deleteFile(ref.name))

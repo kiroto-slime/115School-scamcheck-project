@@ -79,7 +79,6 @@ research.post('/research/answer', async (c) => {
   const p = await participant(c, b.research_id)
   if (b.case_id !== (b.phase === 'pre' ? p.pre_case_id : p.post_case_id)) throw new HttpError(400, '案例與作答階段不符。')
   const done = await answeredPhases(db, p.research_id)
-  if (done.has(b.phase)) throw new HttpError(409, '此階段已作答。')
   if (PHASES.slice(0, PHASES.indexOf(b.phase)).some((ph) => !done.has(ph))) throw new HttpError(409, '請依序完成前面的階段。')
 
   const kase = (await getCase(db, b.case_id))!
@@ -87,19 +86,31 @@ research.post('/research/answer', async (c) => {
   const err = b.user_decision === 'unsure' ? 'unsure' : correct ? null : kase.verified_label === 'legit' ? 'false_positive' : 'false_negative'
   const assisted = b.phase === 'post_assisted'
   const triggers = assisted && p.experiment_group === 'B' ? analyzeText(kase.simulated_content).tags : []
+  const responseId = newId()
+  // 同一個寫入敘述檢查資格及重複作答，避免兩個同時送出的答案都被計入。
   const stmts = [
     db.prepare(`INSERT INTO research_responses (response_id, research_id, experiment_group, case_id, phase, user_decision, decision_reason_code, correctness, error_type,
-      response_time_ms, assistance_used, system_triggers_json, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
-      newId(), p.research_id, p.experiment_group, kase.case_id, b.phase, b.user_decision, b.decision_reason_code, bool(correct), err, b.response_time_ms,
-      assisted ? ASSISTANCE_BY_GROUP[p.experiment_group] : 'none', JSON.stringify(triggers), p.is_demo, nowIso()),
+      response_time_ms, assistance_used, system_triggers_json, is_demo, created_at)
+      SELECT ?, p.research_id, p.experiment_group, ?, ?, ?, ?, ?, ?, ?, ?, ?, p.is_demo, ?
+      FROM research_participants p WHERE p.research_id = ? AND p.status != 'withdrawn'
+      AND (SELECT consent_status FROM consent_records WHERE research_id = p.research_id AND purpose = 'research'
+           ORDER BY consent_time DESC, rowid DESC LIMIT 1) = 'granted'
+      AND NOT EXISTS (SELECT 1 FROM research_responses WHERE research_id = p.research_id AND phase = ?)`).bind(
+      responseId, kase.case_id, b.phase, b.user_decision, b.decision_reason_code, bool(correct), err, b.response_time_ms,
+      assisted ? ASSISTANCE_BY_GROUP[p.experiment_group] : 'none', JSON.stringify(triggers), nowIso(), p.research_id, b.phase),
   ]
   const out: Record<string, unknown> = { recorded: true, phase: b.phase }
   if (assisted) {
-    stmts.push(db.prepare("UPDATE research_participants SET status = 'completed' WHERE research_id = ?").bind(p.research_id))
+    stmts.push(db.prepare(`UPDATE research_participants SET status = 'completed' WHERE research_id = ?
+      AND EXISTS (SELECT 1 FROM research_responses WHERE response_id = ?)`).bind(p.research_id, responseId))
     const pre = (await getCase(db, p.pre_case_id))!
     out.reveal = [pre, kase].map((x) => ({ case_id: x.case_id, title: x.title, verified_label: x.verified_label, label_basis: x.label_basis }))
   }
-  await db.batch(stmts)
+  const [insert] = await db.batch(stmts)
+  if (!insert.meta.changes) {
+    await participant(c, p.research_id)
+    throw new HttpError(409, '此階段已作答，請繼續下一個步驟。')
+  }
   return c.json(out)
 })
 
@@ -112,22 +123,30 @@ research.post('/consent', async (c) => {
   let rid = b.research_id ?? null
   if (b.status === 'withdrawn') {
     if (!rid) throw new HttpError(400, '撤回同意需要提供研究編號。')
-    const purposes = b.purpose === 'research' ? ['research', 'secondary_use'] : [b.purpose]
-    const r = await db.prepare(`UPDATE consent_records SET consent_status = 'withdrawn', withdrawal_time = ? WHERE research_id = ? AND consent_status = 'granted' AND purpose IN (${purposes.map(() => '?').join(',')})`)
-      .bind(nowIso(), rid, ...purposes).run()
+    const now = nowIso()
+    const statements = [db.prepare(`UPDATE consent_records SET consent_status = 'withdrawn', withdrawal_time = ?
+      WHERE research_id = ? AND consent_status = 'granted' AND (purpose = ? OR (? = 'research' AND purpose = 'secondary_use'))`)
+      .bind(now, rid, b.purpose, b.purpose)]
+    if (b.purpose === 'research') {
+      statements.push(db.prepare(`UPDATE research_participants SET status = 'withdrawn' WHERE research_id = ?
+        AND EXISTS (SELECT 1 FROM consent_records WHERE research_id = ? AND withdrawal_time = ? AND consent_status = 'withdrawn')`)
+        .bind(rid, rid, now))
+    }
+    const [r] = await db.batch(statements)
     if (!r.meta.changes) throw new HttpError(404, '找不到有效的同意紀錄。')
-    if (b.purpose === 'research') await db.prepare("UPDATE research_participants SET status = 'withdrawn' WHERE research_id = ?").bind(rid).run()
     return c.json({ research_id: rid, purpose: b.purpose, status: 'withdrawn', message: '已撤回同意，之後不再蒐集研究資料。若要刪除已蒐集資料，請使用「刪除我的研究資料」。' })
   }
   if (b.status === 'granted' && !s.research_collection_enabled) throw new HttpError(403, '研究資料蒐集已結束。')
   if (!rid) {
     if (b.status !== 'granted' || b.purpose !== 'research') return c.json({ research_id: null, purpose: b.purpose, status: b.status, message: '未建立任何研究紀錄。' })
     rid = newResearchId()
-  } else if (b.purpose === 'secondary_use' && b.status === 'granted' && !(await hasActiveConsent(db, rid, 'research'))) {
-    throw new HttpError(400, '需先同意研究用途，才能同意衍生統計使用。')
   }
-  await db.prepare('INSERT INTO consent_records (consent_id, research_id, purpose, consent_version, consent_status, consent_time, is_demo) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(newId(), rid, b.purpose, s.consent_version, b.status, nowIso(), bool(isDemo)).run()
+  const requiresResearch = b.purpose === 'secondary_use' && b.status === 'granted'
+  const saved = await db.prepare(`INSERT INTO consent_records (consent_id, research_id, purpose, consent_version, consent_status, consent_time, is_demo)
+    SELECT ?, ?, ?, ?, ?, ?, ? WHERE ? = 0 OR (SELECT consent_status FROM consent_records
+      WHERE research_id = ? AND purpose = 'research' ORDER BY consent_time DESC, rowid DESC LIMIT 1) = 'granted'`)
+    .bind(newId(), rid, b.purpose, s.consent_version, b.status, nowIso(), bool(isDemo), bool(requiresResearch), rid).run()
+  if (!saved.meta.changes) throw new HttpError(400, '需先同意研究用途，才能同意衍生統計使用。')
   return c.json({ research_id: rid, purpose: b.purpose, status: b.status, consent_version: s.consent_version })
 })
 
@@ -135,17 +154,24 @@ research.post('/privacy/delete', async (c) => {
   await rateLimit(c, 'DEFAULT_LIMITER')
   const db = c.env.DB
   const { research_id: rid } = await readBody(c, z.object({ research_id: RID }))
-  await db.prepare('DELETE FROM source_results WHERE analysis_id IN (SELECT analysis_id FROM analysis_records WHERE research_id_nullable = ?)').bind(rid).run()
-  const del = async (sql: string) => (await db.prepare(sql).bind(rid).run()).meta.changes
+  // 先清除只留下查核編號的評價與來源，再刪除研究編號和查核之間的關聯。
+  const [, feedback, responses, analyses, participants] = await db.batch([
+    db.prepare('DELETE FROM source_results WHERE analysis_id IN (SELECT analysis_id FROM analysis_records WHERE research_id_nullable = ?)').bind(rid),
+    db.prepare(`DELETE FROM feedback_records WHERE research_id = ?
+      OR analysis_id IN (SELECT analysis_id FROM analysis_records WHERE research_id_nullable = ?)`).bind(rid, rid),
+    db.prepare('DELETE FROM research_responses WHERE research_id = ?').bind(rid),
+    db.prepare('DELETE FROM analysis_records WHERE research_id_nullable = ?').bind(rid),
+    db.prepare('DELETE FROM research_participants WHERE research_id = ?').bind(rid),
+    db.prepare("UPDATE consent_records SET consent_status = 'withdrawn', withdrawal_time = ? WHERE research_id = ? AND consent_status = 'granted'").bind(nowIso(), rid),
+    db.prepare("UPDATE audit_logs SET target = NULL WHERE action = 'privacy_delete' AND target = ?").bind(rid),
+  ])
   const counts = {
-    research_responses: await del('DELETE FROM research_responses WHERE research_id = ?'),
-    analysis_records: await del('DELETE FROM analysis_records WHERE research_id_nullable = ?'),
-    feedback: await del('DELETE FROM feedback_records WHERE research_id = ?'),
-    participant: await del('DELETE FROM research_participants WHERE research_id = ?'),
+    research_responses: responses.meta.changes,
+    analysis_records: analyses.meta.changes,
+    feedback: feedback.meta.changes,
+    participant: participants.meta.changes,
   }
-  // 同意紀錄保留「已撤回」狀態作為處理證明（不含任何個資）
-  await db.prepare("UPDATE consent_records SET consent_status = 'withdrawn', withdrawal_time = ? WHERE research_id = ? AND consent_status = 'granted'").bind(nowIso(), rid).run()
-  await audit(db, 'participant', 'privacy_delete', rid, JSON.stringify(counts))
+  await audit(db, 'participant', 'privacy_delete', null, JSON.stringify(counts))
   return c.json({ research_id: rid, deleted: counts, message: '已刪除此研究編號的研究資料。' })
 })
 
@@ -160,13 +186,15 @@ research.post('/feedback', async (c) => {
     reason_code: z.enum(['clear', 'unclear', 'too_long', 'wrong_result', 'useful_tips', 'other']).nullish(),
   }))
   if (!b.analysis_id && !b.research_id) throw new HttpError(400, '需要分析編號或研究編號。')
-  const analysis = b.analysis_id ? await db.prepare('SELECT is_demo FROM analysis_records WHERE analysis_id = ?').bind(b.analysis_id).first<{ is_demo: number }>() : null
-  if (b.analysis_id && !analysis) throw new HttpError(404, '找不到分析紀錄。')
-  // 研究編號可能來自研究測驗（research_participants），也可能只是查核頁勾了「B. 同意研究」（consent_records）
-  if (b.research_id && !(await db.prepare('SELECT 1 FROM research_participants WHERE research_id = ?').bind(b.research_id).first()) && !(await hasActiveConsent(db, b.research_id, 'research')))
-    throw new HttpError(404, '找不到研究編號。')
-  await db.prepare('INSERT INTO feedback_records (feedback_id, analysis_id, research_id, helpful, rating, reason_code, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(newId(), b.analysis_id ?? null, b.research_id ?? null, bool(b.helpful), b.rating ?? null, b.reason_code ?? null, analysis?.is_demo ?? bool(!isFormal(c.get('settings'))), nowIso()).run()
+  const saved = await db.prepare(`WITH submission(analysis_id, research_id) AS (VALUES (?, ?))
+    INSERT INTO feedback_records (feedback_id, analysis_id, research_id, helpful, rating, reason_code, is_demo, created_at)
+    SELECT ?, s.analysis_id, s.research_id, ?, ?, ?, COALESCE(a.is_demo, ?), ?
+    FROM submission s LEFT JOIN analysis_records a ON a.analysis_id = s.analysis_id
+    WHERE (s.analysis_id IS NULL OR a.analysis_id IS NOT NULL)
+      AND (s.research_id IS NULL OR (SELECT consent_status FROM consent_records WHERE research_id = s.research_id
+        AND purpose = 'research' ORDER BY consent_time DESC, rowid DESC LIMIT 1) = 'granted')`)
+    .bind(b.analysis_id ?? null, b.research_id ?? null, newId(), bool(b.helpful), b.rating ?? null, b.reason_code ?? null, bool(!isFormal(c.get('settings'))), nowIso()).run()
+  if (!saved.meta.changes) throw new HttpError(404, '找不到查核紀錄或有效的研究同意，請重新開啟查核結果或研究頁。')
   return c.json({ recorded: true })
 })
 

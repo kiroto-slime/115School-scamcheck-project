@@ -1,5 +1,6 @@
 /** 管理員 API（全部需要登入，除了 /admin/login） */
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin } from '../auth'
 import { clearDemo, seedDemo } from '../demo'
@@ -10,6 +11,7 @@ import { computeStatistics, exportData } from '../stats'
 import { finalLevelOf, originLabel, savedResult } from '../export-format'
 import { redactPii, stripUrlQueries } from '../redact'
 import { audit, HttpError, newId, nowIso, parseJson } from '../util'
+import { checkUploadVersion, startTw165Upload, storeTw165Shard, publishTw165Upload, uploadedShardKey } from '../tw165-upload'
 
 export const admin = new Hono<AppEnv>()
 const passwordBody = z.object({ password: z.string().min(1).max(200) })
@@ -20,6 +22,7 @@ admin.post('/admin/login', async (c) => {
   const b = await readBody(c, passwordBody)
   if (!(await checkPassword(c.env, b.password))) {
     await audit(c.env.DB, 'unknown', 'login_failed')
+    console.warn('admin_login_failed')
     throw new HttpError(401, '密碼錯誤。')
   }
   await audit(c.env.DB, 'admin', 'login')
@@ -29,8 +32,11 @@ admin.post('/admin/login', async (c) => {
 const guarded = new Hono<AppEnv>()
 guarded.use('*', requireAdmin)
 guarded.post('/logout', async (c) => {
-  await c.env.DB.prepare("INSERT INTO audit_logs (log_id, actor, action, created_at) VALUES (?, 'admin', 'logout', ?) ON CONFLICT(log_id) DO NOTHING")
-    .bind(c.get('logoutLogId'), nowIso()).run()
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM admin_sessions WHERE key_hash = ?').bind(c.get('sessionHash')),
+    c.env.DB.prepare("INSERT INTO audit_logs (log_id, actor, action, created_at) VALUES (?, 'admin', 'logout', ?)")
+      .bind(newId(), nowIso()),
+  ])
   return c.json({ logged_out: true })
 })
 const datasetOf = (c: { req: { query: (k: string) => string | undefined } }) => {
@@ -197,30 +203,31 @@ guarded.put('/settings', async (c) => {
   return c.json({ updated: true })
 })
 
-/** 165 名單：瀏覽器整理好的分片，一次送多片（每行「兩碼分片<Tab>JSON」），Worker 不解析 JSON 以節省 CPU */
-guarded.put('/tw165/shards', async (c) => {
-  const body = await c.req.text()
-  if (body.length > 4_000_000) throw new HttpError(413, '一次上傳太多，請重新整理頁面後再試。')
-  const lines = body.split('\n').filter(Boolean)
-  for (const line of lines) {
-    const tab = line.indexOf('\t')
-    const key = line.slice(0, tab)
-    const json = line.slice(tab + 1)
-    if (tab !== 2 || !/^[0-9a-f]{2}$/.test(key) || !json.startsWith('{') || !json.endsWith('}')) throw new HttpError(422, '名單格式不正確，請使用管理頁的更新按鈕上傳。')
-    await c.env.TW165.put(`shard:${key}`, json)
-  }
-  return c.json({ saved: lines.length })
+guarded.post('/tw165/uploads', bodyLimit({ maxSize: 24 * 1024, onError: () => { throw new HttpError(413, '名單摘要過大，請重新選擇檔案。') } }), async c => {
+  const b = await readBody(c, z.object({ hashes: z.array(z.string().regex(/^[a-f0-9]{64}$/)).length(256) }))
+  return c.json({ version: await startTw165Upload(c.env, b.hashes) })
+})
+
+guarded.put('/tw165/shards', bodyLimit({ maxSize: 512 * 1024, onError: () => { throw new HttpError(413, '分片過大，請重新檢查選擇的 CSV。') } }), async c => {
+  const version = c.req.query('version') ?? ''
+  checkUploadVersion(version)
+  const key = c.req.query('key') ?? ''
+  if (!/^[a-f0-9]{2}$/.test(key)) throw new HttpError(422, '分片編號不正確，請重新選擇檔案。')
+  const result = await storeTw165Shard(c.env, version, key, await c.req.text())
+  if (result.retired) c.executionCtx.waitUntil(c.env.TW165.delete(uploadedShardKey(result.retired, key)))
+  return c.json(result.pending ? { pending: true } : { saved: true })
 })
 
 guarded.put('/tw165/meta', async (c) => {
+  const version = c.req.query('version') ?? ''
+  checkUploadVersion(version)
   const b = await readBody(c, z.object({
     count: z.number().int().min(1000),
-    sources: z.array(z.object({ code: z.enum(['s', 'i']), name: z.string().max(80), page: z.string().url(), rows: z.number().int().min(0) })).min(1).max(2),
+    sources: z.array(z.object({ code: z.enum(['s', 'i']), name: z.string().max(80), page: z.string().max(256).url(), rows: z.number().int().min(0) })).min(1).max(2),
   }))
-  const meta = { available: true, updated_at: nowIso(), count: b.count, sources: b.sources }
-  await c.env.TW165.put('meta', JSON.stringify(meta))
-  await audit(c.env.DB, c.get('admin'), 'update_tw165', null, `${b.count} 筆`)
-  return c.json(meta)
+  const result = await publishTw165Upload(c.env, version, b.count, b.sources)
+  if (result.changed) await audit(c.env.DB, c.get('admin'), 'update_tw165', null, `${b.count} 筆`)
+  return c.json(result)
 })
 
 guarded.post('/ai/test', async (c) => {

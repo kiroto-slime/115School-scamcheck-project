@@ -61,10 +61,10 @@ export default function Privacy() {
       <Section title={t("我們蒐集什麼、為什麼", "What we collect and why", "収集するデータと目的", "수집하는 데이터와 목적")}>
         <ul className="list-disc space-y-1 pl-5">
           <li><strong>{t("必要的暫時處理：", "Temporary processing. ", "確認に必要な一時処理：", "확인에 필요한 일시 처리: ")}</strong>{t(
-            "為完成你這次的查核，伺服器會暫時處理你輸入的文字或上傳的檔案。原始圖片、影片處理完即刪除；未同意研究者，不把訊息內容寫入資料庫。同意研究者，只保存已遮蔽姓名、地址、電話、Email、證號、帳號、車牌後的文字與去參數網址，保存到專題結束（由後台設定日期）。圖片、影片檔不保存，只保存你補充的文字與 AI 對內容的文字描述（同樣經遮蔽）。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。",
-            "The server temporarily processes your text or files to complete your check. Original images and videos are deleted after processing. Without research consent, message content is not written to the database. With consent, we keep only text with names, addresses, phone numbers, email addresses, identification numbers, account numbers and license plates masked, and URLs with query parameters removed. These are kept until the project end date set by the administrator. For images and videos, we keep only your accompanying text and the AI’s description, both masked. Automatic masking can miss details. Please leave other people’s personal information out of your submission.",
-            "確認のため、サーバーは入力テキストやアップロードされたファイルを一時処理し、元の画像・動画は処理後に削除します。研究への同意がない場合、メッセージ内容はデータベースに保存しません。同意がある場合は、氏名、住所、電話番号、メールアドレス、身分証番号、口座・アカウント番号、車両番号を伏せたテキストと、クエリパラメーターを除いたURLのみを、管理者が設定した研究終了日まで保存します。画像・動画ファイルは保存せず、補足テキストとAIによる説明文のみを同様にマスキングして保存します。自動処理で隠しきれない場合があるため、他の方の個人情報は入力しないでください。",
-            "메시지를 확인하기 위해 서버가 입력한 글이나 업로드한 파일을 일시적으로 처리하며, 원본 이미지와 동영상은 처리 후 삭제합니다. 연구에 동의하지 않으면 메시지 내용을 데이터베이스에 저장하지 않습니다. 동의하면 이름, 주소, 전화번호, 이메일, 신분증 번호, 계좌·계정 번호, 차량 번호를 가린 텍스트와 쿼리 매개변수를 제거한 URL만 관리자가 설정한 프로젝트 종료일까지 저장합니다. 이미지·동영상 파일은 보관하지 않으며, 추가로 입력한 글과 AI가 생성한 설명문만 개인정보를 가린 뒤 보관합니다. 자동 처리 과정에서 누락될 수 있으니 다른 사람의 개인정보를 입력하지 마세요.",
+            "為完成你這次的查核，伺服器會暫時處理你輸入的文字或上傳的檔案。本站不保存原始圖片或影片。未同意研究者，不把訊息內容寫入資料庫。同意研究者，只保存已遮蔽姓名、地址、電話、Email、證號、帳號、車牌後的文字與去參數網址，保存到專題結束（由後台設定日期）。圖片、影片檔不保存，只保存你補充的文字與 AI 對內容的文字描述（同樣經遮蔽）。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。",
+            "The server temporarily processes your text or files to complete your check. This site does not retain the original images or videos. Without research consent, message content is not written to the database. With consent, we keep only text with names, addresses, phone numbers, email addresses, identification numbers, account numbers and license plates masked, and URLs with query parameters removed. These are kept until the project end date set by the administrator. For images and videos, we keep only your accompanying text and the AI’s description, both masked. Automatic masking can miss details. Please leave other people’s personal information out of your submission.",
+            "確認のため、サーバーは入力テキストやアップロードされたファイルを一時処理し、当サイトには元の画像・動画を保存しません。研究への同意がない場合、メッセージ内容はデータベースに保存しません。同意がある場合は、氏名、住所、電話番号、メールアドレス、身分証番号、口座・アカウント番号、車両番号を伏せたテキストと、クエリパラメーターを除いたURLのみを、管理者が設定した研究終了日まで保存します。画像・動画ファイルは保存せず、補足テキストとAIによる説明文のみを同様にマスキングして保存します。自動処理で隠しきれない場合があるため、他の方の個人情報は入力しないでください。",
+            "메시지를 확인하기 위해 서버가 입력한 글이나 업로드한 파일을 일시적으로 처리하며, 이 사이트는 원본 이미지와 동영상을 보관하지 않습니다. 연구에 동의하지 않으면 메시지 내용을 데이터베이스에 저장하지 않습니다. 동의하면 이름, 주소, 전화번호, 이메일, 신분증 번호, 계좌·계정 번호, 차량 번호를 가린 텍스트와 쿼리 매개변수를 제거한 URL만 관리자가 설정한 프로젝트 종료일까지 저장합니다. 이미지·동영상 파일은 보관하지 않으며, 추가로 입력한 글과 AI가 생성한 설명문만 개인정보를 가린 뒤 보관합니다. 자동 처리 과정에서 누락될 수 있으니 다른 사람의 개인정보를 입력하지 마세요.",
           )}</li>
           <li><strong>{t("自願的校內研究：", "Optional school research. ", "任意の校内研究：", "선택 사항인 교내 연구: ")}</strong>{t(
             "只在查核頁「協助校內研究」為勾選狀態時（預設勾選，可取消），保存已遮蔽個資的訊息內容與去參數網址、分析結果（風險特徵、等級、媒體類型）與研究測驗的作答（判斷、理由選項、作答時間）。",
@@ -130,10 +130,10 @@ export default function Privacy() {
             "연구에 동의하면 개인정보를 가린 메시지와 쿼리 매개변수를 제거한 URL을 관리자가 설정한 프로젝트 종료일까지 보관하고 이후 내용을 자동 삭제합니다. 전체 연구 기록은 관리자 설정에 따라 최대 2년간 보관합니다.",
           )}</li>
           <li>{t(
-            "上傳檔案：本網站不保存；影片交給 Gemini 分析後立即刪除 Google 上的檔案（Google 也會在 48 小時內自動刪除）。",
-            "Uploaded files are not retained by this site. After Gemini analyzes a video, we immediately delete the file from Google. Google also deletes it automatically within 48 hours.",
-            "サイトではアップロードファイルを保管しません。Gemini での動画分析後、Google 上のファイルを直ちに削除します。Google 側でも48時間以内に自動削除されます。",
-            "이 사이트는 업로드한 파일을 보관하지 않습니다. Gemini에서 동영상 분석이 끝나면 Google에 있는 파일을 즉시 삭제합니다. Google도 48시간 이내에 자동으로 삭제합니다.",
+            "本站不保存上傳的原始檔案。影片處理結束後，系統會向 Google 要求刪除。若上傳後中斷或未能確認刪除，Google 會在上傳 48 小時後自動刪除檔案。",
+            "This site does not retain original uploads. We request deletion from Google when video processing ends. If processing is interrupted or deletion is unconfirmed, Google automatically deletes the file 48 hours after upload.",
+            "サイトは元のファイルを保管しません。動画の処理後、Googleに削除を依頼します。処理の中断や削除を確認できない場合でも、Googleはアップロードから48時間後に自動削除します。",
+            "이 사이트는 업로드한 원본 파일을 보관하지 않습니다. 동영상 처리가 끝나면 Google에 삭제를 요청합니다. 처리가 중단되거나 삭제를 확인하지 못한 경우에도 Google은 업로드 48시간 후 파일을 자동 삭제합니다.",
           )}</li>
         </ul>
       </Section>

@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { factCheckLookup, factCheckQueries } from '../factcheck'
 import { analyzeText } from '../rules'
 import { extractUrls, maskHost, safeBrowsingLookup, tw165Lookup, virusTotalLookup } from '../urlcheck'
-import { call } from './helpers'
+import { adminHeaders, call } from './helpers'
+import { buildUploadChunks } from '../../src/tw165'
+import { cleanupTw165Uploads, storeTw165Shard, uploadedShardKey } from '../tw165-upload'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -62,6 +64,20 @@ describe('165 名單', () => {
     expect((await tw165Lookup(e, [])).status).toBe('no_url')
     expect((await tw165Lookup({ ...env, ASSETS: await fakeAssets(false) } as Env, extractUrls('evil-shop.cc'))).status).toBe('unavailable')
   })
+  it('版本讀取失敗時仍能繼續其他服務；部分資料損壞時保留其他網址的命中', async () => {
+    const assets = await fakeAssets()
+    const e = { ...env, ASSETS: assets } as Env
+    const unavailable = { ...e, DB: { prepare: () => { throw new Error('測試資料庫暫時無法讀取') } } } as unknown as Env
+    expect((await tw165Lookup(unavailable, extractUrls('good.example'))).status).toBe('unavailable')
+    const invalidKey = await shard('broken.example')
+    const partial = { ...e, ASSETS: { fetch: async (request: Request) =>
+      new URL(request.url).pathname === '/tw165/' + invalidKey + '.json'
+        ? Response.json({ 'broken.example': null }) : assets.fetch(request) } } as Env
+    expect((await tw165Lookup(partial, extractUrls('broken.example'))).status).toBe('unavailable')
+    const mixed = await tw165Lookup(partial, extractUrls('broken.example evil-shop.cc'))
+    expect(mixed.status).toBe('listed')
+    expect(mixed.message).toContain('部分名單')
+  })
   it('整合：列入名單的網址會加分並列出依據，資料庫不存網址', async () => {
     const r = await call('/api/analyze/text', { body: { text: '快來 evil-shop.cc 看看', query_cofacts: false }, envOverride: { ASSETS: await fakeAssets() } })
     expect(r.json.url_checks.tw165.status).toBe('listed')
@@ -89,6 +105,8 @@ describe('Google 與 VirusTotal', () => {
     expect(r.status).toBe('found')
     expect(r.threats[0].detail).toBe('疑似詐騙／釣魚網站')
     expect(String(calls[0].init!.body)).not.toContain('x=1')
+    expect(new URL(calls[0].url).searchParams.has('key')).toBe(false)
+    expect(new Headers(calls[0].init!.headers).get('x-goog-api-key')).toBe(KEYS.GOOGLE_CLOUD_API_KEY)
   })
   it('VirusTotal：只查網域報告；404 視為沒有紀錄', async () => {
     const calls = mockFetch((url) => url.includes('bad.top')
@@ -135,6 +153,8 @@ describe('Google 與 VirusTotal', () => {
     const r = await factCheckLookup(e(), '[手機] 您的帳戶將被凍結 https://bit.ly/x', 100)
     expect(r.items[0]).toMatchObject({ publisher: '台灣事實查核中心', rating: '錯誤', date: '2026-01-02' })
     // 送出的是關鍵字，不含個資、網址
+    expect(new URL(calls[0].url).searchParams.has('key')).toBe(false)
+    expect(new Headers(calls[0].init!.headers).get('x-goog-api-key')).toBe(KEYS.GOOGLE_CLOUD_API_KEY)
     const q = decodeURIComponent(calls[0].url)
     expect(q).toContain('帳戶')
     expect(q).toContain('凍結')
@@ -155,19 +175,73 @@ describe('Google 與 VirusTotal', () => {
 })
 
 describe('管理頁上傳 165 名單', () => {
-  it('上傳後改用新名單（比部署內建的新）；未登入不能上傳', async () => {
-    const { adminHeaders } = await import('./helpers')
-    expect((await call('/api/admin/tw165/meta', { method: 'PUT', body: { count: 1000, sources: [] } })).status).toBe(401)
-    const h = await adminHeaders()
-    const key = await shard('new-scam.shop')
-    const up = await call('/api/admin/tw165/shards', { method: 'PUT', raw: `${key}\t{"new-scam.shop":["s","2026-10","電子商務"]}`, headers: h })
-    expect(up.json).toEqual({ saved: 1 })
-    expect((await call('/api/admin/tw165/shards', { method: 'PUT', raw: 'zz\t{}', headers: h })).status).toBe(422)
-    const m = await call('/api/admin/tw165/meta', { method: 'PUT', body: { count: 1000, sources: [{ code: 's', name: '涉詐網站', page: 'https://data.gov.tw/dataset/176455', rows: 1000 }] }, headers: h })
-    expect(m.status).toBe(200)
-    const e = { ...env, ASSETS: await fakeAssets() } as Env
-    const r = await tw165Lookup(e, extractUrls('https://new-scam.shop'))
-    expect(r.status).toBe('listed')
-    expect((await call('/api/health', { envOverride: { ASSETS: await fakeAssets() } })).json.modes.tw165).toMatchObject({ origin: 'upload', count: 1000 })
+  it('只清理超過兩天的舊分片，保留現行版與還在傳送的版本', async () => {
+    const version = (days: number) => (Date.now() - days * 86_400_000) + '-' + 'a'.repeat(32)
+    const active = version(5), abandoned = version(4), pending = version(0)
+    await env.DB.prepare('INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)')
+      .bind('tw165_active_upload', JSON.stringify({ version: active, available: true }), new Date().toISOString()).run()
+    for (const v of [active, abandoned, pending]) {
+      await env.TW165.put('tw165:manifest:' + v, '{}')
+      await env.TW165.put(uploadedShardKey(v, 'aa'), '{}')
+    }
+    await cleanupTw165Uploads(env)
+    expect(await env.TW165.get(uploadedShardKey(active, 'aa'))).toBe('{}')
+    expect(await env.TW165.get(uploadedShardKey(pending, 'aa'))).toBe('{}')
+    expect(await env.TW165.get(uploadedShardKey(abandoned, 'aa'))).toBeNull()
+    expect(await env.TW165.get('tw165:manifest:' + abandoned)).toBeNull()
   })
+
+  it('舊名單仍可比對，傳輸中斷、筆數不符或過期的網頁不會覆寫上線版本', async () => {
+    const headers = await adminHeaders()
+    const oldHost = 'old-list.example'
+    const oldKey = await shard(oldHost)
+    const e = { ...env, ASSETS: await fakeAssets(false) } as Env
+    await env.TW165.put('meta', JSON.stringify({ available: true, updated_at: new Date().toISOString(), count: 1 }))
+    await env.TW165.put('shard:' + oldKey, JSON.stringify({ [oldHost]: ['s', '', '舊名單'] }))
+    const lookup = (host: string) => tw165Lookup(e, extractUrls(host))
+    expect((await lookup(oldHost)).status).toBe('listed')
+    expect((await call('/api/admin/tw165/meta', { method: 'PUT', body: {} })).status).toBe(401)
+    expect((await call('/api/admin/tw165/shards', { method: 'PUT', raw: '00\t{}', headers })).status).toBe(409)
+
+    const entries = new Map<string, [string, string, string]>()
+    for (let i = 0; i < 1000; i++) entries.set('item' + i + '.example', ['s', '2026-10', '本機模擬'])
+    const parts = await buildUploadChunks(entries)
+    const init = { body: { hashes: parts.map(p => p.hash) }, headers }
+    const start = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
+    const first = (await call('/api/admin/tw165/uploads', init)).json.version
+    clock.mockReturnValue(start + 1)
+    const second = (await call('/api/admin/tw165/uploads', init)).json.version
+    clock.mockRestore()
+    const publish = (v: string, count = 1000) => call('/api/admin/tw165/meta?version=' + v, {
+      method: 'PUT', headers, body: { count, sources: [{ code: 's', name: '測試', page: 'https://data.gov.tw/', rows: 1000 }] },
+    })
+    const [part] = parts
+    const putPath = '/api/admin/tw165/shards?version=' + second + '&key=' + part.key
+    expect((await call(putPath, { method: 'PUT', raw: part.body, headers })).json.saved).toBe(true)
+    expect((await call(putPath, { method: 'PUT', raw: 'null', headers })).status).toBe(422)
+    expect((await publish(second)).json.pending).toBe(true)
+    expect((await lookup(oldHost)).status).toBe('listed')
+
+    // 每片以和正式路由相同的方式檢查，分批送入本機 KV。
+    for (let i = 0; i < parts.length; i += 16) {
+      await Promise.all(parts.slice(i, i + 16).map(p => storeTw165Shard(e, second, p.key, p.body)))
+    }
+    expect((await publish(second, 1001)).status).toBe(422)
+    expect((await publish(second)).json.published).toBe(true)
+    expect((await publish(second)).json.changed).toBe(false)
+    expect((await lookup('item1.example')).status).toBe('listed')
+    expect((await lookup(oldHost)).status).toBe('not_listed')
+    // 第一個分頁晚到的一片只會進它自己的版本；即使後來傳完，也不能蓋掉較新版。
+    await storeTw165Shard(e, first, part.key, part.body)
+    expect((await publish(first)).json.pending).toBe(true)
+    for (let i = 1; i < parts.length; i += 16) {
+      await Promise.all(parts.slice(i, i + 16).map(p => storeTw165Shard(e, first, p.key, p.body)))
+    }
+    expect((await publish(first)).status).toBe(409)
+    expect((await lookup('item1.example')).status).toBe('listed')
+    // 模擬該區媒介仍讀不到已發布版本的一片。
+    await env.TW165.delete(uploadedShardKey(second, await shard('item1.example')))
+    expect((await lookup('item1.example')).status).toBe('unavailable')
+  }, 60_000)
 })

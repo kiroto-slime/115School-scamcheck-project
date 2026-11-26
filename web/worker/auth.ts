@@ -2,14 +2,15 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { z } from 'zod'
 import type { AppSettings } from './settings'
-import { b64url, fromB64url, hmacHex, HttpError, newId, safeEqual, sha256 } from './util'
+import { hmacHex, HttpError, newId, safeEqual, sha256 } from './util'
 
-export type AppEnv = { Bindings: Env; Variables: { settings: AppSettings; admin: string; logoutLogId: string } }
+export type AppEnv = { Bindings: Env; Variables: { settings: AppSettings; admin: string; sessionHash: string } }
 export type Ctx = Context<AppEnv>
 
 const TOKEN_MINUTES = 120
 
-const sessionKey = async (pw: string) => [...(await sha256(`session:${pw}`))].map((b) => b.toString(16).padStart(2, '0')).join('')
+// 管理密碼更換後，即使瀏覽器還保有舊憑證也無法查到原工作階段。
+const sessionHash = (password: string, token: string) => hmacHex(password, 'admin-session:' + token)
 
 export async function checkPassword(env: Env, input: string): Promise<boolean> {
   if (!env.ADMIN_PASSWORD) return false
@@ -17,35 +18,23 @@ export async function checkPassword(env: Env, input: string): Promise<boolean> {
 }
 
 export async function createToken(env: Env): Promise<string> {
-  const payload = b64url(JSON.stringify({ u: 'admin', sid: newId(), exp: Date.now() + TOKEN_MINUTES * 60_000 }))
-  return `${payload}.${await hmacHex(await sessionKey(env.ADMIN_PASSWORD!), payload)}`
-}
-
-async function readSessionId(env: Env, token: string): Promise<string | null> {
-  if (!env.ADMIN_PASSWORD) return null
-  const [payload, sig] = token.split('.')
-  if (!payload || !sig) return null
-  if (!safeEqual(sig, await hmacHex(await sessionKey(env.ADMIN_PASSWORD), payload))) return null
-  try {
-    const d = JSON.parse(fromB64url(payload))
-    return d.u === 'admin' && typeof d.exp === 'number' && d.exp > Date.now()
-      && typeof d.sid === 'string' && /^[a-f0-9]{32}$/.test(d.sid) ? d.sid : null
-  } catch {
-    return null
-  }
+  const token = newId() + newId()
+  const key = await sessionHash(env.ADMIN_PASSWORD!, token)
+  await env.DB.prepare('INSERT INTO admin_sessions (key_hash, expires_at) VALUES (?, ?)')
+    .bind(key, Date.now() + TOKEN_MINUTES * 60_000).run()
+  return token
 }
 
 export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.env.ADMIN_PASSWORD) throw new HttpError(503, '管理員密碼尚未設定（請在 Cloudflare 後台設定 ADMIN_PASSWORD）。')
   const auth = c.req.header('Authorization') ?? ''
-  const sid = auth.startsWith('Bearer ') ? await readSessionId(c.env, auth.slice(7)) : null
-  if (!sid) throw new HttpError(401, '請重新登入管理後台。')
-  // 登出事件的主鍵只含隨機登入編號。即使拿到稽核紀錄也無法當作憑證使用。
-  const logoutLogId = 'logout:' + sid
-  if (await c.env.DB.prepare('SELECT 1 FROM audit_logs WHERE log_id = ?').bind(logoutLogId).first())
-    throw new HttpError(401, '這次登入已結束，請重新登入。')
+  if (!/^Bearer [a-f0-9]{64}$/.test(auth)) throw new HttpError(401, '請重新登入管理後台。')
+  const key = await sessionHash(c.env.ADMIN_PASSWORD, auth.slice(7))
+  const active = await c.env.DB.prepare('SELECT 1 FROM admin_sessions WHERE key_hash = ? AND expires_at > ?')
+    .bind(key, Date.now()).first()
+  if (!active) throw new HttpError(401, '這次登入已結束，請重新登入。')
   c.set('admin', 'admin')
-  c.set('logoutLogId', logoutLogId)
+  c.set('sessionHash', key)
   await next()
 }
 
@@ -54,7 +43,10 @@ export const clientIp = (c: Ctx) => c.req.header('CF-Connecting-IP') ?? 'unknown
 /** 每個 IP 每分鐘的請求上限（Cloudflare Rate Limiting binding） */
 export async function rateLimit(c: Ctx, name: 'ANALYZE_LIMITER' | 'LOGIN_LIMITER' | 'DEFAULT_LIMITER') {
   const binding = c.env[name] as RateLimit | undefined
-  if (!binding) return
+  if (!binding) {
+    console.error('rate_limiter_unavailable', name)
+    throw new HttpError(503, '暫時無法受理請求，請稍後再試。')
+  }
   const { success } = await binding.limit({ key: clientIp(c) })
   if (!success) throw new HttpError(429, '請求太頻繁，請稍候一分鐘再試。')
 }

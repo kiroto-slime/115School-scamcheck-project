@@ -108,8 +108,6 @@ export const currentModel = (states: ModelState[], needMedia = false) =>
   states.find((m) => !m.unavailable && m.remaining > 0 && (!needMedia || m.media)) ??
   null
 
-const isDailyQuota = (raw: string) => /PerDay|per day|daily/i.test(raw)
-const isNotFound = (e: GeminiError) => e.status === 404 || (e.status === 400 && /not found|not supported|unsupported model|is not available/i.test(e.raw))
 
 /** 依序嘗試模型；回傳結果並註明是否因額度改用其他模型 */
 export async function analyzeWithFallback(env: Env, s: AppSettings, text: string, media: AIMedia[], fetcher?: typeof fetch, preferred?: string): Promise<AIResult> {
@@ -146,7 +144,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
     } catch (e) {
       if (!(e instanceof GeminiError)) return fail('error', 'Gemini 回覆格式無法解讀，請再試一次。', m.id)
       if (e.status === 429) {
-        if (isDailyQuota(e.raw)) {
+        if (e.reason === 'daily_quota') {
           await setCount(env.DB, day, usedKey(m.id), m.daily)
           skipped.push(`${modelLabel(m.id)} 今日額度已用完`)
         } else {
@@ -165,7 +163,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         skipped.push(`${modelLabel(m.id)} 暫時太多人使用`)
         continue
       }
-      if (isNotFound(e)) {
+      if (e.reason === 'model_unavailable') {
         await bump(env.DB, day, badKey(m.id))
         skipped.push(`${modelLabel(m.id)} 無法使用`)
         continue

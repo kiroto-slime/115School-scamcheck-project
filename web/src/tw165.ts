@@ -66,13 +66,15 @@ async function shardOf(host: string) {
   return [...new Uint8Array(buf).slice(0, 1)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** 切成 256 片，每 32 片組成一次上傳的內容（每行「兩碼\tJSON」） */
-export async function buildUploadChunks(map: ParsedLists['map']): Promise<string[]> {
+/** 每一片先在瀏覽器計算摘要，初始化上傳後只能重送相同內容。 */
+export async function buildUploadChunks(map: ParsedLists['map']) {
   const shards = new Map<string, Record<string, [string, string, string]>>()
   for (let i = 0; i < 256; i++) shards.set(i.toString(16).padStart(2, '0'), {})
   for (const [host, v] of map) shards.get(await shardOf(host))![host] = v
-  const keys = [...shards.keys()]
-  const chunks: string[] = []
-  for (let i = 0; i < keys.length; i += 32) chunks.push(keys.slice(i, i + 32).map((k) => `${k}\t${JSON.stringify(shards.get(k))}`).join('\n'))
-  return chunks
+  return Promise.all([...shards].map(async ([key, part]) => {
+    const body = JSON.stringify(part)
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body))
+    const hash = Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('')
+    return { key, body, hash }
+  }))
 }

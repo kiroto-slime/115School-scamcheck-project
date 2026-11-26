@@ -357,7 +357,7 @@ export default function Check() {
             {preview && mode === 'image' && <img src={preview} alt={t('已選擇的圖片預覽', 'Preview of selected image', '選択した画像のプレビュー', '선택한 이미지 미리보기')} className="max-h-64 rounded-lg border object-contain" />}
             {preview && mode === 'video' && <video src={preview} controls playsInline className="max-h-64 w-full rounded-lg border" />}
             {mode === 'video' && (aiOn
-              ? <Alert kind="info">{t('影片會交給 Gemini 分析畫面與聲音，分析完成後即刪除 Google 上的檔案。', 'Gemini analyzes the video and audio. The file is deleted from Google when analysis finishes.', 'Geminiに映像と音声を送信して分析します。完了後、Google上のファイルを削除します。', 'Gemini가 영상과 소리를 분석합니다. 분석이 끝나면 Google에 있는 파일을 삭제합니다.')}</Alert>
+              ? <Alert kind="info">{t('影片會交給 Gemini 分析畫面與聲音。處理結束後系統會要求 Google 刪除檔案，Google 也會在上傳 48 小時後自動刪除。', 'Gemini analyzes the video and audio. The site requests deletion when processing ends. Google also deletes uploaded files after 48 hours.', 'Geminiに映像と音声を送信して分析します。処理後に削除を依頼します。Googleでもアップロードから48時間後に自動削除されます。', 'Gemini가 영상과 소리를 분석합니다. 처리가 끝나면 파일 삭제를 요청하며 Google도 업로드 48시간 후 자동 삭제합니다.')}</Alert>
               : <Alert kind="warn">{t('未使用 AI 時無法分析影片內容，請在下方「補充文字」輸入影片中的文字或旁白重點。', 'Without AI, we can only check text. Enter the video’s on-screen text or main narration points below.', 'AIを使わない場合は動画を分析できません。画面内の文字やナレーションの要点を下の「補足テキスト」に入力してください。', 'AI를 사용하지 않으면 동영상 내용을 분석할 수 없습니다. 아래 ‘추가 설명’에 화면 속 글이나 내레이션의 요점을 입력하세요.')}</Alert>)}
             {manualHint && <Alert kind="warn">{message(manualHint)}</Alert>}
             <div>
@@ -379,7 +379,7 @@ export default function Check() {
         <legend className="sr-only">{t('資料處理與同意', 'Data processing and consent', 'データの取扱いと同意', '데이터 처리 및 동의')}</legend>
         <h2 className="text-sm font-medium">{t('資料處理說明', 'How we handle your data', 'データの取扱い', '데이터 처리 안내')}</h2>
         <p className="text-sm text-slate-700">
-          {t('送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；', 'We process your content temporarily to run this check and delete the original files immediately afterward. ', '今回のチェックのため一時的に内容を処理し、処理後すぐに元のファイルを削除します。', '이번 확인을 위해 내용을 임시로 처리하며, 처리가 끝나면 원본 파일을 바로 삭제합니다. ')}
+          {t('系統會暫時處理你的內容以完成本次查核，本站不保存上傳的原始檔案。', 'We process your submission temporarily. This site does not retain the original uploaded files. ', 'チェックのため一時的に内容を処理します。このサイトはアップロードされた元のファイルを保管しません。', '확인을 위해 제출한 내용을 임시로 처리하며, 이 사이트는 업로드한 원본 파일을 보관하지 않습니다. ')}
           {t('沒有勾選「協助校內研究」時，分析結果（不含原文）保存 30 天後自動刪除。', 'If you opt out of school research, results without the original text are automatically deleted after 30 days. ', '「校内研究に協力する」を選ばない場合、原文を含まない分析結果は30日後に自動削除されます。', '‘교내 연구 참여’를 선택하지 않으면 원문을 제외한 분석 결과를 30일 후 자동으로 삭제합니다. ')}<Link to="/privacy">{t('詳細說明', 'Privacy details', '詳しい説明', '자세히 보기')}</Link>
         </p>
         <p className="text-xs text-slate-500">{t('外部查詢只會送至已勾選的服務，可展開下方設定調整。圖片、影片只有勾選 Gemini 時才會送到 Google，請勿上傳他人隱私。', 'Only the services you select below receive data. Images and videos go to Google only when Gemini is selected. Do not upload other people’s private information.', '外部送信先は下の設定で選択したサービスのみです。画像・動画はGeminiを選んだ場合のみGoogleに送信されます。他人の個人情報をアップロードしないでください。', '아래 설정에서 선택한 서비스에만 데이터를 보냅니다. Gemini를 선택해야만 이미지와 동영상을 Google에 보냅니다. 타인의 개인정보를 올리지 마세요.')}</p>

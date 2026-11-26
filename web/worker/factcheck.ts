@@ -68,11 +68,11 @@ export async function factCheckLookup(env: Env, redactedText: string, dailyLimit
   const doFetch = opts.fetcher ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
   for (const query of queries) {
     if (!(await takeDailyQuota(env.DB, 'factcheck', dailyLimit))) return res('rate_limited', '今日 Google 查詢次數已達上限。')
-    const url = `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=${encodeURIComponent(query)}&pageSize=3&key=${encodeURIComponent(env.GOOGLE_CLOUD_API_KEY)}`
+    const url = `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=${encodeURIComponent(query)}&pageSize=3`
     let data: Claims | null = null
     for (let attempt = 0; attempt < 2 && !data; attempt++) {
       try {
-        const r = await doFetch(url, { signal: AbortSignal.timeout(8000) })
+        const r = await doFetch(url, { signal: AbortSignal.timeout(8000), headers: { 'x-goog-api-key': env.GOOGLE_CLOUD_API_KEY } })
         if (r.status >= 500 && attempt === 0) {
           await sleep(opts.retryDelayMs ?? 500)
           continue

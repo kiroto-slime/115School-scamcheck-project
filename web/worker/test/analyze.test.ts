@@ -38,6 +38,22 @@ describe('文字查核', () => {
     expect(record).toEqual({ research_id_nullable: null, consent_research: 0, content_text: null })
   })
 
+  it.each([
+    { label: '停止收集', patch: { research_collection_enabled: false }, research: 0 },
+    { label: '更新同意版本', patch: { consent_version: '新版本' }, research: 1 },
+    { label: '提前結束保存', patch: { content_retention_until: '2020-01-01' }, research: 1 },
+  ])('查詢期間若管理員$label，交易套用新的保存限制', async ({ patch, research }) => {
+    const { json: consent } = await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })
+    mockFetch(async () => {
+      await saveSettings(env.DB, patch)
+      return Response.json({ data: { ListArticles: { edges: [] } } })
+    })
+    const result = await call('/api/analyze/text', { body: { text: '明天請將圖書交回教室。', research_id: consent.research_id } })
+    expect(result.status).toBe(200)
+    const record = await env.DB.prepare('SELECT consent_research, research_id_nullable, content_text, content_urls_json FROM analysis_records WHERE analysis_id = ?').bind(result.json.analysis_id).first()
+    expect(record).toEqual({ consent_research: research, research_id_nullable: research ? consent.research_id : null, content_text: null, content_urls_json: null })
+  })
+
   it('正常運作，且資料庫不存原文', async () => {
     const r = await call('/api/analyze/text', { body: { text: SCAM } })
     expect(r.status).toBe(200)
@@ -159,6 +175,19 @@ describe('Gemini', () => {
     expect(['中', '高']).toContain(r.json.risk_level)
   })
 
+  it('供應商的詳細錯誤不會隨查核結果保存或顯示', async () => {
+    const diagnostic = 'provider-diagnostic-fixture'
+    mockFetch(() => Response.json({ error: { message: diagnostic } }, { status: 400 }))
+    const result = await call('/api/analyze/text', { body: { text: '今天教室開放。', query_cofacts: false, use_ai: true }, envOverride: GEMINI })
+    expect(result.json.ai.summary).toContain('Gemini 拒絕')
+    const row = await env.DB.prepare('SELECT result_json FROM analysis_records WHERE analysis_id = ?').bind(result.json.analysis_id).first<{ result_json: string }>()
+    expect(row!.result_json).not.toContain(diagnostic)
+    const old = JSON.parse(row!.result_json)
+    old.ai.summary += '（Google 訊息：' + diagnostic + '）'
+    await env.DB.prepare('UPDATE analysis_records SET result_json = ? WHERE analysis_id = ?').bind(JSON.stringify(old), result.json.analysis_id).run()
+    expect((await call('/api/analysis/' + result.json.analysis_id)).json.ai.summary).toBe(result.json.ai.summary)
+  })
+
   it('模型亂回的等級改成「無法判斷」；兩種回應格式都能讀', async () => {
     mockFetch(() => geminiReply({ ...GOOD, risk_level: '詐騙機率 99%' }))
     const r = await call('/api/analyze/text', { body: { text: SCAM, use_ai: true }, envOverride: GEMINI })
@@ -191,9 +220,25 @@ describe('圖片與影片', () => {
   })
 
   it('圖片交給 Gemini 看圖分析', async () => {
-    const calls = mockFetch(() => geminiReply({ ...GOOD, media_description: '一張要求匯款的截圖' }))
+    const reply = { ...GOOD, summary: '冒充物流，要求寄信至 demo@example.test。',
+      risk_points: ['聯絡 0912-345-678'], advice: ['避免點 https://example.test/help?trace=fixture'],
+      media_description: '一張要求匯款的截圖', debug_field: '內部資料' }
+    const calls = mockFetch(() => geminiReply(reply))
     const r = await call('/api/analyze/image', { body: { image_base64: png, mime_type: 'image/png', use_ai: true }, envOverride: GEMINI })
-    expect(r.json.ai).toMatchObject({ status: 'ok', sent_media: ['image'] })
+    expect(r.json.ai).toMatchObject({ status: 'ok', sent_media: ['image'], risk_level: '高', summary: '冒充物流，要求寄信至 [Email]。', risk_points: ['聯絡 [手機]'], media_description: null })
+    const { result_json } = (await env.DB.prepare('SELECT result_json FROM analysis_records WHERE analysis_id = ?').bind(r.json.analysis_id).first<{ result_json: string }>())!
+    for (const value of [reply.media_description, 'demo@example.test', 'trace=fixture', '0912-345-678']) expect(result_json).not.toContain(value)
+    // 模擬舊格式；重新讀取時仍須套用遮蔽與公開欄位清單。
+    const legacy = { ...JSON.parse(result_json), ai: { ...r.json.ai, ...reply } }
+    await env.DB.prepare('UPDATE analysis_records SET result_json = ? WHERE analysis_id = ?').bind(JSON.stringify(legacy), r.json.analysis_id).run()
+    const old = await call('/api/analysis/' + r.json.analysis_id)
+    expect(old.json.ai).toEqual(r.json.ai)
+    const grant = await call('/api/consent', { body: { purpose: 'research', status: 'granted' } })
+    const granted = await call('/api/analyze/image', { body: { image_base64: png, mime_type: 'image/png', use_ai: true, research_id: grant.json.research_id }, envOverride: GEMINI })
+    const saved = await env.DB.prepare('SELECT result_json, content_text FROM analysis_records WHERE analysis_id = ?').bind(granted.json.analysis_id).first<{ result_json: string; content_text: string }>()
+    expect(saved?.content_text).toContain(reply.media_description)
+    expect(saved?.result_json).not.toContain(reply.media_description)
+    expect(granted.json.ai.summary).toBe(r.json.ai.summary)
     const input = JSON.parse(String(calls[0].init!.body)).input
     expect(input[1]).toMatchObject({ type: 'image', mime_type: 'image/png' })
   })
@@ -234,6 +279,33 @@ describe('圖片與影片', () => {
     expect(await verifyMediaRef(e, ref)).toMatchObject({ name: 'files/x1' })
     expect(await verifyMediaRef(e, ref.replace(/.$/, (ch) => (ch === 'a' ? 'b' : 'a')))).toBeNull()
     expect(await verifyMediaRef({ ...e, GEMINI_API_KEY: 'other' } as Env, ref)).toBeNull()
+    const unconfigured = { ...env, GEMINI_API_KEY: undefined } as Env
+    expect(await verifyMediaRef(unconfigured, ref)).toBeNull()
+    await expect(signMediaRef(unconfigured, { name: 'files/x1', uri: 'u', mime: 'video/mp4' })).rejects.toThrow()
+  })
+
+  it('上傳後取消 AI，只查補充文字並清除已上傳的影片', async () => {
+    const mediaRef = await signMediaRef({ ...env, ...GEMINI } as Env, { name: 'files/example', uri: 'https://example.test/video', mime: 'video/mp4' })
+    const calls = mockFetch(() => new Response(null, { status: 200 }))
+    const result = await call('/api/analyze/video', { body: { media_ref: mediaRef, use_ai: false, query_cofacts: false, extra_text: '明天請帶作業。' }, envOverride: GEMINI })
+    expect(result.status).toBe(200)
+    expect(result.json.ai.status).toBe('not_requested')
+    expect(result.json.media.ocr_status).toBe('unavailable')
+    expect(calls.map(c => c.init?.method)).toEqual(['DELETE'])
+  })
+
+  it('暫時無法刪除影片時會重試，已不存在也視為清理完畢', async () => {
+    const statuses = [503, 404]
+    const calls = mockFetch(() => new Response(null, { status: statuses.shift() }))
+    await new Gemini({ ...env, ...GEMINI } as Env, 'gemini', fetch, 0).deleteFile('files/example')
+    expect(calls.filter(c => c.init?.method === 'DELETE')).toHaveLength(2)
+  })
+
+  it('刪除無法確認時只記錄事件類別', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockFetch(() => new Response(null, { status: 403 }))
+    await new Gemini({ ...env, ...GEMINI } as Env, 'gemini', fetch, 0).deleteFile('files/example')
+    expect(warning.mock.calls).toEqual([['gemini_file_cleanup_unconfirmed']])
   })
 })
 

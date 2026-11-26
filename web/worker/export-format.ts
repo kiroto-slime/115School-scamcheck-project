@@ -1,11 +1,16 @@
 /** 匯出用中文呈現：只整理已保存結果，不重做查核或產生事件。 */
 import { redactPii, RULES } from './rules'
 import { parseJson } from './util'
+import { publicAiResult } from './gemini'
 import { finalRisk, mainReasons, riskConclusion } from '../shared/conclusion'
 
 export type JsonObject = Record<string, unknown>
 export const objectOf = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {}
-export const savedResult = (json: string | null | undefined) => objectOf(parseJson<unknown>(json, {}))
+export function savedResult(json: string | null | undefined): JsonObject {
+  const value = objectOf(parseJson<unknown>(json, {}))
+  if (Object.hasOwn(value, 'ai')) value.ai = publicAiResult(value.ai)
+  return value
+}
 export const stringsOf = (value: unknown): string[] => Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string' && !!x.trim()) : []
 
 export const FEATURE_ZH: Record<string, string> = Object.fromEntries(RULES.map((r) => [r.feature_id, r.label]))
@@ -126,9 +131,9 @@ export function readableAnalysis(a: ExportAnalysis) {
 }
 
 /** 技術欄位頁：給研究者對照用的編號、版本與原始代碼 */
-export function technicalRow(a: ExportAnalysis) {
+export function technicalRow(a: ExportAnalysis, checkCode: string | null, participantCode: string | null) {
   return [
-    a.analysis_id, a.research_id_nullable ?? null, a.created_at, a.rule_version ?? null, a.risk_score_nullable, a.risk_level,
+    checkCode, participantCode, a.created_at, a.rule_version ?? null, a.risk_score_nullable, a.risk_level,
     stringsOf(parseJson<unknown>(a.risk_tags_json, [])).join(','), a.analysis_status ?? null,
     yesNo(a.consent_research), yesNo(a.consent_secondary_use),
     a.consent_secondary_use ? '已同意衍生用途；仍須確認授權範圍、人工審查及去識別後才能作教材，不代表可直接公開。' : '未同意衍生使用；僅供已同意的校內研究，不直接作衍生教材或公開。',

@@ -2,7 +2,7 @@
 import { cofactsLookup, disabledLookup, LICENSE, skippedLookup } from './cofacts'
 import { factCheckLookup, FactCheckResult } from './factcheck'
 import { analyzeWithFallback } from './aimodels'
-import { AIMedia, disabledResult, notRequestedResult } from './gemini'
+import { AIMedia, disabledResult, notRequestedResult, publicAiResult } from './gemini'
 import { stripUrlQueries } from './redact'
 import { analyzeText, redactPii } from './rules'
 import { AppSettings, aiMode } from './settings'
@@ -56,7 +56,7 @@ export interface AnalyzeInput {
 
 export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput, analysisId = newId()): Promise<Record<string, unknown>> {
   const db = env.DB
-  const redacted = redactPii(inp.text)
+  const redacted = redactPii(stripUrlQueries(inp.text))
   const urls = extractUrls(inp.text)
   const opts = { fetcher: inp.fetcher }
   const notRequested = (status: 'not_requested' | 'disabled', message: string): ExternalUrlResult => ({ status, threats: [], message })
@@ -97,11 +97,10 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput, a
       ? notRequestedResult()
       : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel)
 
-  // 外部查詢可能要等幾分鐘，在寫入前才確認同意，以涵蓋等待期間的撤回。
-  const consentResearch = s.research_collection_enabled && (await hasActiveConsent(db, inp.researchId, 'research'))
+  const researchId = s.research_collection_enabled ? inp.researchId : null
   const withinRetention = nowIso().slice(0, 10) <= s.content_retention_until
-  const consentContent = consentResearch && withinRetention && (await hasActiveConsent(db, inp.researchId, 'research', s.consent_version))
-  const consentSecondary = consentResearch && (await hasActiveConsent(db, inp.researchId, 'secondary_use'))
+  // 只為已同意目前版本的人準備內容；交易寫入時仍須再次確認。
+  const consentContent = researchId && withinRetention && (await hasActiveConsent(db, researchId, 'research', s.consent_version))
   const content = consentContent ? savedContent(inp.text, inp.mediaType, ai.status === 'ok' ? ai.media_description ?? null : null) : null
   // 網址路徑也可能夾帶手機、證號，保存前同樣遮蔽
   const contentUrls = consentContent ? JSON.stringify(urls.map((u) => redactPii(u.url)).slice(0, 10)) : null
@@ -115,7 +114,7 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput, a
     features: risk.features,
     basis: risk.basis,
     safe_actions: risk.safe_actions,
-    ai,
+    ai: publicAiResult(ai),
     checked_at: now,
   }
   const anyError = [lookup.status, ai.status, safeBrowsing.status, virusTotal.status, factCheck.status].includes('error')
@@ -123,16 +122,34 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput, a
   const stmts = [
     db.prepare(`INSERT INTO analysis_records (analysis_id, research_id_nullable, created_at, media_type, source_count, risk_score_nullable, risk_level,
       risk_tags_json, analysis_status, rule_version, external_ai_used, consent_research, consent_secondary_use, is_demo, result_json, expires_at, content_text, content_urls_json, content_edited)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).bind(
-      analysisId, consentResearch ? inp.researchId : null, now, inp.mediaType, lookup.matches.length, risk.risk_score, risk.risk_level,
-      JSON.stringify(risk.tags), status, risk.rule_version, bool(ai.external && ai.status === 'ok'), bool(consentResearch), bool(consentSecondary),
-      // 一般查核獨立於前後測研究模式；只代表使用者送出的查核，不代表內容已證實。
-      0, JSON.stringify(result),
-      // 未同意研究者：只暫存供當次查看，到期自動刪除
-      consentResearch ? null : nowIso(s.temp_retention_hours * 3600_000),
-      content, contentUrls,
+      VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, NULL, NULL, 0)`).bind(
+      analysisId, now, inp.mediaType, lookup.matches.length, risk.risk_score, risk.risk_level,
+      JSON.stringify(risk.tags), status, risk.rule_version, bool(ai.external && ai.status === 'ok'),
+      JSON.stringify(result), nowIso(s.temp_retention_hours * 3600_000),
     ),
   ]
+  if (researchId) {
+    // 和上面的暫存結果、下方來源同一筆交易。撤回或刪除同意後，就只留下有期限的一般查核。
+    // 舊版研究同意只涵蓋衍生統計。管理員在分析期間停收、改版或縮短保存期限也要生效。
+    stmts.push(db.prepare(`WITH latest_research AS (
+        SELECT consent_status, consent_version FROM consent_records WHERE research_id = ? AND purpose = 'research'
+        ORDER BY consent_time DESC, rowid DESC LIMIT 1
+      ), allowed AS (
+        SELECT consent_version = ? AND date('now') <= ?
+          AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'consent_version' AND value != json_quote(latest_research.consent_version))
+          AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'content_retention_until' AND value < json_quote(date('now')))
+          AS save_content
+        FROM latest_research WHERE consent_status = 'granted'
+          AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'research_collection_enabled' AND value != 'true')
+      )
+      UPDATE analysis_records SET research_id_nullable = ?, consent_research = 1, expires_at = NULL,
+        consent_secondary_use = COALESCE((SELECT consent_status = 'granted' FROM consent_records WHERE research_id = ? AND purpose = 'secondary_use'
+          ORDER BY consent_time DESC, rowid DESC LIMIT 1), 0),
+        content_text = CASE WHEN (SELECT save_content FROM allowed) THEN ? END,
+        content_urls_json = CASE WHEN (SELECT save_content FROM allowed) THEN ? END
+      WHERE analysis_id = ? AND EXISTS (SELECT 1 FROM allowed)`)
+      .bind(researchId, s.consent_version, s.content_retention_until, researchId, researchId, content, contentUrls, analysisId))
+  }
   const src = (provider: string, status: string, m: { match_type: string; title?: string | null; url?: string | null; reply_type?: string | null }, license: string | null) =>
     db.prepare(`INSERT INTO source_results (source_result_id, analysis_id, provider, result_status, match_type, source_title, source_url, reply_type, checked_at, license_tag)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(newId(), analysisId, provider, status, m.match_type, m.title ?? null, m.url ?? null, m.reply_type ?? null, now, license)
@@ -182,7 +199,7 @@ export function serialize(rec: AnalysisRow): Record<string, unknown> {
     external_ai_used: Boolean(rec.external_ai_used),
     consent_research: Boolean(rec.consent_research),
     score_disclaimer: '風險指數為規則加權分數，不是經統計校準的詐騙機率，也不是司法認定。',
-    ...Object.fromEntries(publicFields.filter(key => Object.hasOwn(details, key)).map(key => [key, details[key]])),
+    ...Object.fromEntries(publicFields.filter(key => Object.hasOwn(details, key)).map(key => [key, key === 'ai' ? publicAiResult(details.ai) : details[key]])),
   }
 }
 
