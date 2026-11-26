@@ -24,7 +24,7 @@
     "hono": "^4.13.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0",
+    "react-router-dom": "^7.18.7",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -39,11 +39,18 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.25.0",
+    "esbuild-plugins-node-modules-polyfill": "^1.8.3",
     "jsdom": "^25.0.1",
     "tailwindcss": "^4.0.0",
     "typescript": "~5.6.3",
     "vite": "^6.4.5",
     "vitest": "^4.1.12",
     "wrangler": "^4.152.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }
