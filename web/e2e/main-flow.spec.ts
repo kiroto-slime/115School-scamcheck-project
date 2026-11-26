@@ -27,6 +27,26 @@ test('主要查核流程：輸入文字 → 結果頁', async ({ page }) => {
   await expect(page.getByText('感謝回饋！')).toBeVisible()
 })
 
+test('切換介面語言保留輸入與服務選擇', async ({ page }) => {
+  await page.goto('/check')
+  await page.locator('#text').fill('這是留在欄位的測試訊息')
+  await page.locator('#service-settings > summary').click()
+  const cofacts = page.getByRole('checkbox', { name: /Cofacts/ })
+  await cofacts.uncheck()
+  const menu = page.locator('.mobile-menu-toggle')
+  if (await menu.isVisible()) await menu.click()
+  const language = page.getByRole('combobox', { name: /Language/ })
+  for (const lang of ['en', 'ja', 'ko']) {
+    await language.selectOption(lang)
+    await expect(page.locator('html')).toHaveAttribute('lang', lang)
+    await expect(page.locator('#text')).toHaveValue('這是留在欄位的測試訊息')
+    await expect(cofacts).not.toBeChecked()
+    await noHorizontalOverflow(page)
+  }
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko')
+})
+
 test('研究測驗流程：同意 → 前測 → 輔助 → 後測', async ({ page }) => {
   await page.goto('/research')
   await page.getByLabel(/我自願將匿名作答資料/).check()
@@ -407,13 +427,30 @@ test('站內問答依入口回覆，手機可切換小球，問題只在當頁�
     await page.getByRole('switch', { name: '顯示客服小球' }).click()
     const close = page.getByRole('button', { name: '關閉選單' })
     if (await close.isVisible()) await close.click()
+    const start = (await orb.boundingBox())!
+    const x = start.x + start.width / 2
+    const y = start.y + start.height / 2
+    const scrollBefore = await page.evaluate(() => window.scrollY)
+    const touch = await page.context().newCDPSession(page)
+    try {
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - 60, y: y - 90 }] })
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    } finally {
+      await touch.detach()
+    }
+    await expect.poll(async () => (await orb.boundingBox())!.x).toBeCloseTo(start.x - 60, 0)
+    expect((await orb.boundingBox())!.y).toBeCloseTo(start.y - 90, 0)
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore)
+    await expect(orb).toHaveAttribute('aria-expanded', 'false')
   }
   const reading = (await page.locator('.reading-toggle').boundingBox())!
   const ball = (await orb.boundingBox())!
   expect(ball.width).toBeGreaterThanOrEqual(reading.width * 1.5)
   expect(ball.height).toBe(ball.width)
   expect(ball.x + ball.width).toBeLessThan(reading.x)
-  await orb.click()
+  if (isMobile) await orb.tap()
+  else await orb.click()
   const panel = page.getByRole('dialog', { name: '客服問答' })
   await panel.getByRole('button', { name: '這個網站怎麼用？' }).click()
   await expect(panel.getByRole('log')).toContainText('結果會列出')

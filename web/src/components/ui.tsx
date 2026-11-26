@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, type Health } from '../api'
+import { useLanguage, riskLabel } from '../language'
 
 let healthCache: Promise<Health> | null = null
 const healthListeners = new Set<(h: Health) => void>()
@@ -55,30 +56,32 @@ const LEVEL_STYLE: Record<string, string> = {
   資訊不足: 'bg-slate-100 text-slate-700 border-slate-300',
 }
 export function RiskBadge({ level }: { level: string }) {
+  const { t, lang } = useLanguage()
   return (
     <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold ${LEVEL_STYLE[level] ?? LEVEL_STYLE['資訊不足']}`}>
-      風險等級：{level}
+      {t('風險等級：', 'Risk level: ', 'リスク：', '위험 수준: ')}{riskLabel(lang,level)}
     </span>
   )
 }
 
 export function ModeBanner() {
   const { health, error } = useHealth()
-  if (error) return <Alert kind="error">無法連線到後端服務，查核功能暫時無法使用。</Alert>
+  const { t } = useLanguage()
+  if (error) return <Alert kind="error">{t('無法連線到後端服務，查核功能暫時無法使用。','Cannot connect to the checking service. Please try again later.','確認サービスに接続できません。時間をおいてお試しください。','확인 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.')}</Alert>
   if (!health) return null
   const m = health.modes
   // 目前模型用完會自動換下一個，所以這裡顯示「現在輪到的模型」與它今天剩下的次數
   const cur = m.ai_models?.find((x) => x.label === m.ai_model)
   const items: [string, boolean][] = [
     m.ai !== 'gemini'
-      ? ['AI：未設定金鑰（圖片、影片需手動輸入文字）', false]
+      ? [t('AI：未設定金鑰（圖片、影片需手動輸入文字）','AI unavailable · Add text for images and videos','AI未設定：画像・動画にはテキストを入力してください','AI 미설정 · 이미지와 동영상은 텍스트를 입력하세요'), false]
       : cur
-        ? [`AI 模型：${cur.label}（今日剩 ${cur.remaining} 次，用完自動換下一個）`, true]
-        : ['AI：今日免費額度已用完', false],
-    [m.research_mode === 'formal' ? '前後測研究：正式' : '前後測研究：模擬（DEMO）', m.research_mode === 'formal'],
+        ? [t(`AI 模型：${cur.label}（今日剩 ${cur.remaining} 次，用完自動換下一個）`,`AI: ${cur.label} · ${cur.remaining} uses left today, then switches models`,`AI：${cur.label}（本日残り${cur.remaining}回、その後は自動切替）`,`AI: ${cur.label} · 오늘 ${cur.remaining}회 남음, 이후 자동 전환`), true]
+        : [t('AI：今日免費額度已用完','AI: daily quota used up','AI：本日の利用上限に達しました','AI: 오늘의 무료 한도를 소진했습니다'), false],
+    [m.research_mode === 'formal' ? t('前後測研究：正式','Research quiz: live','事前・事後テスト：本調査','사전·사후 검사: 본조사') : t('前後測研究：模擬（DEMO）','Research quiz: demo','事前・事後テスト：デモ','사전·사후 검사: 데모'), m.research_mode === 'formal'],
   ]
   return (
-    <div className="flex flex-wrap gap-1.5" aria-label="系統狀態">
+    <div className="flex flex-wrap gap-1.5" aria-label={t('系統狀態','Service status','サービスの状態','서비스 상태')}>
       {items.map(([t, ok]) => (
         <span key={t} className={`pill ${ok ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{t}</span>
       ))}

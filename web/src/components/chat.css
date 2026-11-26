@@ -51,7 +51,8 @@
 .chat-entry button:disabled { opacity: .55; cursor: default; }
 .support-ball, .support-window { position: fixed; z-index: 24; }
 .support-ball {
-  touch-action: manipulation;
+  touch-action: none;
+  -webkit-touch-callout: none;
   user-select: none;
   cursor: grab;
   background: transparent;

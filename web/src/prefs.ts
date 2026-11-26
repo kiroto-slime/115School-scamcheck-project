@@ -44,7 +44,7 @@ function readTextSize(): TextSize {
 }
 
 /** 配色主題：青綠是預設（index.css 原樣），其他由 scripts/gen-accents.mjs 產生；深淺色仍由深淺按鈕切換 */
-export type Accent = 'teal' | 'blue' | 'violet' | 'orange' | 'pink'
+export type Accent = 'teal' | 'blue' | 'violet' | 'orange' | 'pink' | 'mono'
 /** 名稱與選單方塊的兩個顏色（左上淺、右下深） */
 export const ACCENTS: { id: Accent; label: string; swatch: [string, string] }[] = [
   { id: 'teal', label: '青綠（預設）', swatch: ['#99f6e4', '#0f766e'] },
@@ -52,6 +52,7 @@ export const ACCENTS: { id: Accent; label: string; swatch: [string, string] }[] 
   { id: 'violet', label: '紫羅蘭', swatch: ['#ddd6fe', '#6d28d9'] },
   { id: 'orange', label: '暖陽橘', swatch: ['#fed7aa', '#c2410c'] },
   { id: 'pink', label: '櫻花粉', swatch: ['#fbcfe8', '#be185d'] },
+  { id: 'mono', label: '黑白', swatch: ['#fff', '#000'] },
 ]
 const readAccent = (): Accent => {
   const v = read('accent')

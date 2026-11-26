@@ -287,3 +287,38 @@ summary:focus-visible { border-radius: 8px; }
 .accent-swatch { width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px; border: 1px solid rgba(0,0,0,.18); }
 
 .naughty-area { position: relative; }
+
+.language-menu {
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 14px;
+  color: var(--color-slate-800);
+  background: var(--field);
+}
+.language-menu select { flex: 1; min-width: 0; min-height: 44px; cursor: pointer; color: inherit; background: var(--field); }
+.language-dock { display: flex; position: fixed; bottom: max(18px, env(safe-area-inset-bottom)); left: 16px; z-index: 26; }
+.language-in-nav { display: none; }
+@media (min-width: 768px) {
+  .nav-pinned .desktop-nav { max-height: calc(100dvh - var(--topbar-height,64px) - 108px); }
+}
+@media (max-width: 767px) {
+  .language-dock { display: none; }
+  .language-in-nav { display: flex; margin-top: 16px; }
+}
+:root[data-accent="mono"] {
+  --color-slate-50: #fff; --color-slate-100: #f3f3f3; --color-slate-200: #d8d8d8; --color-slate-300: #888;
+  --color-slate-400: #666; --color-slate-500: #555; --color-slate-600: #444; --color-slate-700: #333; --color-slate-800: #181818; --color-slate-900: #080808;
+  --color-teal-50: #f2f2f2; --color-teal-100: #e6e6e6; --color-teal-600: #424242; --color-teal-700: #252525; --color-teal-800: #080808;
+  --surface: #fff; --field: #fff; --topbar: rgb(255 255 255 / 35%); --menu-glass: rgb(255 255 255 / 90%);
+  --control-border: #878787; --placeholder: #666; --glow-green: transparent; --glow-blue: transparent;
+}
+:root.dark[data-accent="mono"] {
+  --color-slate-50: #000; --color-slate-100: #181818; --color-slate-200: #3b3b3b; --color-slate-300: #888;
+  --color-slate-400: #ababab; --color-slate-500: #bdbdbd; --color-slate-600: #ccc; --color-slate-700: #ddd; --color-slate-800: #eee; --color-slate-900: #fff;
+  --color-teal-50: #1d1d1d; --color-teal-100: #303030; --color-teal-600: #aaa; --color-teal-700: #ddd; --color-teal-800: #f9f9f9;
+  --color-white: #121212; --surface: #111; --field: #121212; --topbar: rgb(0 0 0 / 40%); --menu-glass: rgb(16 16 16 / 92%);
+  --control-border: #838383; --placeholder: #aaa;
+}

@@ -56,9 +56,12 @@ const Sfx = {
   },
 };
 
-function toast(msg) {
+const gameText = GameLanguage.text;
+const showGameText = GameLanguage.bind;
+
+function toast(key) {
   const t = $('#ex-toast');
-  t.textContent = msg;
+  showGameText(t, key);
   t.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => t.classList.remove('show'), 3000);
@@ -84,23 +87,21 @@ const Intro = {
     Sfx.play('glitch');
     document.documentElement.dataset.theme = 'dark';
     document.body.classList.add('corrupted');
-    $('#ex-brand').textContent = '小方塊跑酷';
-    $('#ex-eyebrow').textContent = 'ERROR · 偵測到未知病毒';
-    $('#ex-badge').textContent = '● 感染率 99.9%';
-    $('#ex-face').textContent = '◣ ᴗ ◢';
-    $('#ex-terminal').textContent = '[ ??:?? ] BUG VIRUS DETECTED · 網路已被改寫成遊戲';
-    const title = $('#ex-title');
-    title.textContent = title.dataset.text = '機房……還沒結束';
-    $('#ex-subtitle').textContent = '廣播風暴不是意外，是病毒幹的。';
-    $('#ex-story').innerHTML = `
-      <p>你以為廣播風暴只是有人接錯線？其實是潛伏在封包裡的<strong>「Bug 病毒」</strong>搞的鬼。
-        它把整個機房網路改寫成一款 <strong>2D 動作遊戲</strong>，連小封包都被感染成了紅色。</p>
-      <p>唯一的解法：以<strong>玩家</strong>身分進入遊戲，一路往右衝、踩扁 Bug。
-        往右跑會消耗<strong>能量</strong>，能量用完生命會慢慢流失；吃 🍎 可補一點能量。
-        每 100 分升級並抽一道後台發布的防詐題：答對補滿能量，答錯扣少量生命。達到 ${CLEAR_SCORE} 分就<strong>通關！</strong>通關後仍可繼續衝高分，直到生命歸零。</p>
-      <p class="ex-small">暱稱與排行榜只儲存在這個瀏覽器，不會上傳；請勿輸入真實姓名。</p>`;
+    showGameText($('#ex-eyebrow'), 'detected');
+    showGameText($('#ex-badge'), 'infection');
+    showGameText($('#ex-terminal'), 'corruptTerminal');
+    showGameText($('#ex-title'), 'corruptTitle');
+    showGameText($('#ex-subtitle'), 'corruptSubtitle');
+    const story = $('#ex-story');
+    story.replaceChildren();
+    for (const key of ['story1', 'story2', 'localNames']) {
+      const p = document.createElement('p');
+      if (key === 'localNames') p.className = 'ex-small';
+      showGameText(p, () => gameText(key, CLEAR_SCORE));
+      story.appendChild(p);
+    }
     const btn = $('#ex-start');
-    btn.textContent = '開始遊戲 ▶';
+    showGameText(btn, 'start');
     btn.disabled = false;
     const input = $('#ex-name');
     input.disabled = false;
@@ -178,17 +179,19 @@ const Quiz = {
     clearControls();
     Run.paused = 'quiz';
     $('#ex-quiz').hidden = false;
-    $('#quiz-question').textContent = '正在讀取後台題目…';
+    showGameText($('#quiz-question'), 'loading');
     $('#quiz-options').replaceChildren();
+    GameLanguage.unbind($('#quiz-feedback'));
     $('#quiz-feedback').textContent = '';
     for (const id of ['quiz-retry', 'quiz-continue', 'quiz-skip']) $('#' + id).hidden = true;
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch('/api/game/question', { signal: controller.signal, cache: 'no-store' });
-      if (!response.ok) throw new Error(response.status === 404 ? '後台尚無已發布題目。請管理員新增並發布，或先略過繼續玩。' : '題庫暫時無法載入，請重試或略過繼續玩。');
+      if (!response.ok) throw new Error(response.status === 404 ? 'emptyQuiz' : 'unavailable');
       const question = await response.json();
-      if (typeof question.id !== 'string' || typeof question.question !== 'string' || !Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4 || !question.options.every(v => typeof v === 'string') || !Number.isInteger(question.correct_index) || question.correct_index < 0 || question.correct_index >= question.options.length || typeof question.explanation !== 'string') throw new Error('題目格式不完整，請通知管理員修正，或先略過繼續玩。');
+      if (typeof question.id !== 'string' || typeof question.question !== 'string' || !Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4 || !question.options.every(v => typeof v === 'string') || !Number.isInteger(question.correct_index) || question.correct_index < 0 || question.correct_index >= question.options.length || typeof question.explanation !== 'string') throw new Error('invalid');
       if (request !== this.request) return;
+      GameLanguage.unbind($('#quiz-question'));
       $('#quiz-question').textContent = question.question;
       question.options.forEach((option, index) => {
         const button = document.createElement('button');
@@ -197,13 +200,17 @@ const Quiz = {
           $('#quiz-options').querySelectorAll('button').forEach(b => b.disabled = true);
           const correct = index === question.correct_index;
           const effect = Run.answerQuiz(correct);
-          $('#quiz-feedback').textContent = `${correct ? '答對了！' : '再記住這個重點：'}${effect}\n正確答案：${question.options[question.correct_index]}\n${question.explanation}`;
+          showGameText($('#quiz-feedback'), () => [
+            gameText(correct ? 'correct' : 'incorrect') + gameText(...effect),
+            gameText('answer', question.options[question.correct_index]),
+            question.explanation,
+          ].join('\n'));
           try {
             const saved = JSON.parse(localStorage.getItem('scamcheck-block-parkour-practice') || '[]');
             const rows = Array.isArray(saved) ? saved.slice(-99) : [];
             rows.push({ question_id: question.id, selected_index: index, correct, score: Run.score, at: new Date().toISOString() });
             localStorage.setItem('scamcheck-block-parkour-practice', JSON.stringify(rows));
-          } catch (_) { toast('這個瀏覽器無法保存作答紀錄，本次仍可繼續遊戲。'); }
+          } catch (_) { toast('practiceFailed'); }
           $('#quiz-continue').hidden = false;
           $('#quiz-continue').focus();
         };
@@ -212,7 +219,8 @@ const Quiz = {
       $('#quiz-options button').focus();
     } catch (error) {
       if (request !== this.request) return;
-      $('#quiz-question').textContent = error.name === 'AbortError' ? '題庫連線逾時，請重試或略過繼續玩。' : error.message;
+      const key = error.name === 'AbortError' ? 'timedOut' : ['emptyQuiz', 'invalid'].includes(error.message) ? error.message : 'unavailable';
+      showGameText($('#quiz-question'), key);
       $('#quiz-retry').hidden = false; $('#quiz-skip').hidden = false;
       $('#quiz-retry').focus();
     } finally { clearTimeout(timeout); }
@@ -220,7 +228,7 @@ const Quiz = {
   resume() {
     this.cancel(); clearControls();
     if (Run.paused !== 'quiz') return;
-    if (Run.life <= 0) { Run.finish(false, '答錯題目，LIFE 歸零'); return; }
+    if (Run.life <= 0) { Run.finish(false, 'wrongEnd'); return; }
     Run.rescueFromVoid();
     Run.paused = false;
   },
@@ -425,7 +433,7 @@ const Run = {
       if (!this.hasCleared && this.score >= CLEAR_SCORE) {
         this.hasCleared = true;
         this.banner = { text: 'GAME CLEAR!', t: 130, color: '#ffe14d' };
-        toast('已通關！可以繼續挑戰更高分，直到生命歸零。');
+        toast('clearToast');
       } else {
         this.banner = { text: 'LEVEL UP!', t: 100, color: '#ffe14d' };
       }
@@ -451,7 +459,7 @@ const Run = {
     }
     if (rest > 0 && this.energy === 0) {
       this.life = Math.max(0, this.life - rest / LIFE_DRAIN_PX);
-      if (this.life <= 1e-6) { this.life = 0; this.finish(false, '能量耗盡，LIFE 歸零'); }
+      if (this.life <= 1e-6) { this.life = 0; this.finish(false, 'energyEnd'); }
     }
   },
 
@@ -460,13 +468,13 @@ const Run = {
     if (correct) {
       this.wrongStreak = 0;
       this.energy = 1;
-      return '能量已補滿。';
+      return ['fullEnergy'];
     }
     const loss = WRONG_LOSS * WRONG_RATE ** this.wrongStreak;
     this.wrongStreak++;
     this.life = Math.max(0, this.life - loss);
     if (this.life <= 1e-6) this.life = 0;
-    return `生命 -${Number(loss.toFixed(3))} 格${this.life === 0 ? '，生命已歸零' : ''}。`;
+    return [this.life === 0 ? 'zeroHealth' : 'lostHealth', Number(loss.toFixed(3))];
   },
 
   // 出題時腳下沒有任何地面或平台：移到右邊最近一段地面上
@@ -488,7 +496,7 @@ const Run = {
     Sfx.play('hurt');
     this.pop(fell ? 'FALL!' : 'DAMAGE!', this.p.x, this.p.y - 10, '#ff2a3d');
     if (this.life <= 0) {
-      this.finish(false, fell ? '掉進洞裡，LIFE 歸零' : '被 Bug 擊中，LIFE 歸零');
+      this.finish(false, fell ? 'fallEnd' : 'bugEnd');
       return;
     }
     if (fell) {
@@ -518,7 +526,7 @@ const Run = {
 
   finish(clear, reason) {
     clear = clear || this.hasCleared;
-    if (this.hasCleared) reason = `已通關！繼續挑戰時${reason}`;
+    const alreadyCleared = this.hasCleared;
     this.running = false;
     document.body.appendChild($('#rank-btn'));
     document.body.appendChild($('#sound-btn'));
@@ -526,17 +534,19 @@ const Run = {
     $('#ex-pause').hidden = true;
     Sfx.play(clear ? 'up' : 'over');
     const title = $('#r-title');
-    title.textContent = clear ? 'GAME CLEAR!' : 'GAME OVER';
+    showGameText(title, clear ? 'GAME CLEAR!' : 'GAME OVER');
     title.classList.toggle('clear', clear);
-    $('#r-reason').textContent = reason;
+    showGameText($('#r-reason'), () => alreadyCleared ? gameText('clearedEnd', gameText(reason)) : gameText(reason));
     $('#r-name').textContent = this.name;
     $('#r-score').textContent = this.score;
     $('#r-level').textContent = this.level;
     $('#r-fruit').textContent = this.fruits;
     const entry = { id: Date.now(), name: this.name, score: this.score, clear };
     const rank = ExBoard.add(entry);
-    $('#r-rank').textContent = rank === -1 ? '⚠️ 這個瀏覽器無法儲存成績（可能是無痕模式）'
-      : rank > 0 ? `${this.name}，你是本機排行榜第 ${rank} 名！` : '這次沒擠進前 10 名，再挑戰一次吧！';
+    showGameText($('#r-rank'), () => {
+      if (rank === -1) return gameText('storeFailed');
+      return rank > 0 ? gameText('yourRank', entry.name, rank) : gameText('tryRank');
+    });
     ExBoard.render($('#r-board'), entry.id);
     setTimeout(() => {
       $('#ex-game').hidden = true;
@@ -637,7 +647,7 @@ const Run = {
     c.font = 'italic 900 20px "Arial Black", Impact, sans-serif';
     for (const o of this.pops) {
       c.fillStyle = o.color;
-      c.fillText(o.text, o.x, o.y);
+      c.fillText(gameText(o.text), o.x, o.y);
     }
     c.restore();
 
@@ -646,10 +656,10 @@ const Run = {
     c.textBaseline = 'top';
     c.fillStyle = '#fff';
     c.font = 'bold 16px "Microsoft JhengHei", sans-serif';
-    c.fillText(`PLAYER ${this.name}`, 20, 16);
+    c.fillText(`${gameText('player')} ${this.name}`, 20, 16);
     c.font = 'italic 900 14px "Arial Black", Impact, sans-serif';
     c.fillStyle = '#3dff7a';
-    c.fillText('LIFE', 20, 42);
+    c.fillText(gameText('life'), 20, 42);
     for (let i = 0; i < MAX_LIFE; i++) {
       const fill = Math.max(0, Math.min(1, this.life - i));   // 這一格剩多少
       c.beginPath();
@@ -672,7 +682,7 @@ const Run = {
     // 能量條：橘色外框、藍色內容
     c.fillStyle = '#ffb04d';
     c.font = 'italic 900 11px "Arial Black", Impact, sans-serif';
-    c.fillText('ENERGY', 20, 68);
+    c.fillText(gameText('energy'), 20, 68, 52);
     const ex = 76, ey = 66, ew = 212, eh = 14;
     c.fillStyle = '#14203a';
     c.fillRect(ex, ey, ew, eh);
@@ -685,7 +695,7 @@ const Run = {
     if (empty) {
       c.fillStyle = '#ff6b7a';
       c.font = 'bold 12px "Microsoft JhengHei", sans-serif';
-      c.fillText('能量耗盡，生命流失中！', ex, ey + eh + 5);
+      c.fillText(gameText('draining'), ex, ey + eh + 5);
     }
     c.textAlign = 'center';
     c.fillStyle = '#ffe14d';
@@ -693,7 +703,8 @@ const Run = {
     c.fillText(String(this.score).padStart(5, '0'), W / 2, 14);
     c.font = 'bold 13px "Microsoft JhengHei", sans-serif';
     c.fillStyle = '#c9b8d6';
-    c.fillText(`等級 ${this.level}　｜　下次升級：${this.nextLevel} 分　｜　${this.hasCleared ? '★ 已通關' : `目標：${CLEAR_SCORE} 分`}`, W / 2, 54);
+    const goal = this.hasCleared ? gameText('goalReached') : gameText('goal', CLEAR_SCORE);
+    c.fillText(gameText('hud', this.level, this.nextLevel, goal), W / 2, 54, 365);
 
     // 大字橫幅（GAME START / LEVEL UP）
     if (this.banner) {
@@ -706,9 +717,9 @@ const Run = {
       c.font = 'italic 900 72px "Arial Black", Impact, sans-serif';
       c.lineWidth = 8;
       c.strokeStyle = '#000';
-      c.strokeText(b.text, 0, 0);
+      c.strokeText(gameText(b.text), 0, 0);
       c.fillStyle = b.color;
-      c.fillText(b.text, 0, 0);
+      c.fillText(gameText(b.text), 0, 0);
       c.restore();
     }
   },
@@ -746,22 +757,24 @@ const ExBoard = {
   render(box, highlightId) {
     const list = this.load();
     if (!list.length) {
-      box.innerHTML = '<p class="ex-small">還沒有紀錄，成為第一個上榜的玩家吧！</p>';
+      box.innerHTML = `<p class="ex-small" data-copy="emptyRank">${gameText('emptyRank')}</p>`;
       return;
     }
     const medal = ['🥇', '🥈', '🥉'];
     const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     box.innerHTML = `<table class="ex-board">
-      <thead><tr><th>名次</th><th>暱稱</th><th>分數</th><th>結果</th></tr></thead>
+      <thead><tr>${['rank', 'nameStat', 'score', 'result'].map(key => `<th data-copy="${key}">${gameText(key)}</th>`).join('')}</tr></thead>
       <tbody>${list.map((e, i) => `<tr class="${e.id === highlightId ? 'me' : ''}">
         <td>${medal[i] || i + 1}</td><td>${esc(e.name)}</td><td>${e.score}</td>
-        <td class="${e.clear ? 'clear' : 'over'}">${e.clear ? '通關' : '結束'}</td></tr>`).join('')}</tbody>
+        <td class="${e.clear ? 'clear' : 'over'}" data-copy="${e.clear ? 'cleared' : 'finished'}">${gameText(e.clear ? 'cleared' : 'finished')}</td></tr>`).join('')}</tbody>
     </table>`;
   },
 
   open() {
     this.render($('#m-board'));
-    $('#board-clear').textContent = '清除排行榜';
+    const button = $('#board-clear');
+    button.dataset.copy = 'clearRanks';
+    GameLanguage.refreshNode(button);
     $('#ex-board-modal').hidden = false;
   },
 };
@@ -772,8 +785,8 @@ window.addEventListener('DOMContentLoaded', () => {
   try { Sfx.enabled = localStorage.getItem('scamcheck-block-parkour-sound') !== 'off'; } catch (_) { /* 儲存停用時仍可切換音效。 */ }
   const updateSound = () => {
     soundButton.textContent = Sfx.enabled ? '🔊' : '🔇';
-    soundButton.title = Sfx.enabled ? '關閉音效' : '開啟音效';
-    soundButton.setAttribute('aria-label', soundButton.title);
+    soundButton.dataset.copyTitle = soundButton.dataset.copyLabel = Sfx.enabled ? 'mute' : 'unmute';
+    GameLanguage.refreshNode(soundButton);
     soundButton.setAttribute('aria-pressed', String(Sfx.enabled));
     if (Sfx.output) Sfx.output.gain.value = Sfx.enabled ? 1 : 0;
   };
@@ -822,7 +835,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const startGame = () => {
     const name = $('#ex-name').value.trim();
     if (!name) {
-      toast('請先輸入暱稱！');
+      toast('noName');
       $('#ex-name').focus();
       return;
     }
@@ -845,13 +858,14 @@ window.addEventListener('DOMContentLoaded', () => {
   // 清除要按兩次確認
   $('#board-clear').onclick = e => {
     const btn = e.currentTarget;
-    if (btn.textContent !== '確定清除？') {
-      btn.textContent = '確定清除？';
+    if (btn.dataset.copy !== 'confirmClear') {
+      btn.dataset.copy = 'confirmClear';
+      GameLanguage.refreshNode(btn);
       return;
     }
     try { localStorage.removeItem(ExBoard.KEY); } catch (err) { /* 無法存取就略過 */ }
     ExBoard.open();
-    toast('本機排行榜已清除');
+    toast('clearedBoard');
   };
   $('#r-new').onclick = () => {
     $('#ex-result').hidden = true;

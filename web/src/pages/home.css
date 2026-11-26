@@ -1,0 +1,92 @@
+.home-page { display: grid; gap: 1rem; min-width: 0; container-type: inline-size; }
+.home-hero {
+  --hero-base: #f5f3ee;
+  --hero-ink: #202f28;
+  --hero-muted: #404d46;
+  --hero-fade: #f5f3eeed;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  min-height: clamp(22rem, 42cqw, 27rem);
+  overflow: hidden;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 1.25rem;
+  background: var(--hero-base);
+  box-shadow: var(--panel-shadow);
+}
+:root.dark .home-hero {
+  --hero-base: #1b211e;
+  --hero-ink: #f0f5ec;
+  --hero-muted: #d6dfd6;
+  --hero-fade: #1b211eed;
+}
+.home-intro {
+  position: relative;
+  width: 52%;
+  padding: clamp(1.5rem, 4.3cqw, 2.85rem);
+  color: var(--hero-ink);
+}
+.home-intro h1 {
+  color: var(--hero-ink);
+  font-size: clamp(2.25rem, 5.5cqw, 3.65rem);
+  line-height: 1.12;
+  letter-spacing: -.035em;
+  text-wrap: balance;
+}
+.home-lead { margin-top: 1rem; font-size: 1.2rem; font-weight: 650; line-height: 1.45; text-wrap: balance; }
+.home-description { color: var(--hero-muted); margin-top: .6rem; max-width: 40ch; }
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1.1rem; margin-top: 1.25rem; }
+.home-page:lang(ko), .parcel-guide:lang(ko) { word-break: keep-all; }
+.home-actions a, .home-research-link { text-decoration: none; }
+.home-actions .btn-primary:hover, .home-research-link:hover { text-decoration: none; }
+.home-icon { width: 1.15em; height: 1.15em; flex: none; }
+.home-example-link { display: inline-flex; align-items: center; gap: .4rem; min-height: 44px; font-weight: 650; }
+.home-example-link:hover { text-decoration: underline; }
+.parcel-visual { position: absolute; z-index: -1; inset: 0; overflow: hidden; }
+.parcel-photo {
+  position: absolute;
+  width: 79%;
+  aspect-ratio: 3 / 2;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: url('../assets/parcel-day.webp') center / 100% 100% no-repeat;
+}
+:root.dark .parcel-photo { background-image: url('../assets/parcel-night.webp'); }
+.parcel-visual::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, var(--hero-base) 23%, var(--hero-fade) 39%, transparent 64%); }
+.parcel-screen { display: block; width: 100%; height: 100%; fill: #323c40; font-family: inherit; }
+.parcel-screen-card { fill: #dee1e5; }
+.parcel-screen-line { stroke: #c9cdd0; stroke-width: 1.5; }
+:root.dark .parcel-screen { fill: #edf0f3; }
+:root.dark .parcel-screen-card { fill: #2c2e32; }
+:root.dark .parcel-screen-line { stroke: #3c3e42; }
+
+.home-example { display: grid; gap: .85rem; }
+.home-guide-preview { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1rem; }
+.home-guide-preview p { color: var(--color-slate-700); margin-top: .3rem; }
+.home-parcel-icon { display: grid; place-items: center; flex: none; width: 2.2rem; height: 2.2rem; border-radius: .7rem; background: var(--color-teal-50); color: var(--color-teal-700); font-size: 1.2rem; }
+.home-example > p, .home-disclosure p, .home-disclosure ul { color: var(--color-slate-700); }
+.home-example blockquote { border-inline-start: 3px solid var(--color-teal-700); padding: .8rem 1.05rem; background: var(--color-slate-50); border-radius: 0 .65rem .65rem 0; }
+.home-example-answer h2 { margin: .4rem 0; }
+.home-disclosure p + p { margin-top: .55rem; }
+.guide-back, .guide-check { justify-self: start; }
+.guide-check { margin-top: .4rem; }
+
+@container (max-width: 42rem) {
+  .home-hero { display: flex; flex-direction: column; align-items: stretch; }
+  .home-intro { order: -1; width: 100%; padding: 1.35rem 1.35rem .55rem; }
+  .home-intro h1 { font-size: 2.25rem; }
+  .home-lead { margin-top: .65rem; }
+  .home-description { max-width: 46ch; }
+  .home-actions { margin-top: .8rem; }
+  .parcel-visual { position: relative; z-index: 0; width: 100%; aspect-ratio: 2.1 / 1; }
+  .parcel-photo { width: 100%; top: 43%; }
+  .parcel-visual::after { background: linear-gradient(180deg, var(--hero-base), transparent 20%); }
+  .home-guide-preview { grid-template-columns: auto 1fr; align-items: start; gap: .5rem .8rem; }
+  .home-guide-preview .home-example-link { grid-column: 2; justify-self: start; }
+}
+@container (max-width: 25rem) {
+  .parcel-visual { aspect-ratio: 1.57 / 1; }
+  .parcel-photo { width: 132%; top: 44%; }
+}

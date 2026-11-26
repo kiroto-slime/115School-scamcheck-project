@@ -193,7 +193,7 @@ export const consentRecorded = {
   },
 }
 
-export const formatTime = (iso: string) => {
+export const formatTime = (iso: string, lang = 'zh-TW') => {
   const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
-  return isNaN(d.getTime()) ? iso : d.toLocaleString('zh-TW', { hour12: false })
+  return isNaN(d.getTime()) ? iso : d.toLocaleString(lang, { hour12: false })
 }

@@ -666,7 +666,8 @@ main { max-width: 1240px; margin: 0 auto; padding-top: 32px; }
 .offline-badge { font-size: 11px; color: var(--green); background: var(--soft-green); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
 .packet-helper { position: relative; margin: 0 auto 18px; width: 70px; height: 64px; display: grid; place-items: center; background: #f2d7a6; border: 2px solid #bf9563; border-radius: 16px; color: #694824; box-shadow: 3px 5px 0 var(--bg2); transform: rotate(-4deg); }
 .packet-helper::before { content: ""; position: absolute; top: 0; left: 26px; width: 13px; height: 16px; background: #fff0cd; border: 1px solid #bf9563; border-top: 0; }
-.packet-helper span { padding-top: 12px; font-size: 22px; }
+.packet-face { display: block; width: 44px; height: 18px; margin-top: 10px; }
+.packet-face .infected-eyes { display: none; }
 .intro-panel h1 { text-align: center; font-size: clamp(27px, 4vw, 38px); letter-spacing: .03em; }
 .intro-panel .terminal-line, .intro-subtitle { text-align: center; }
 .intro-subtitle { color: var(--muted); margin: 0 0 26px; }

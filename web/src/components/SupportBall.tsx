@@ -1,12 +1,15 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { ChatPanel } from './ChatPanel'
+import { useLanguage } from '../language'
 
 type Point = { x: number; y: number }
 const gap = 10
+const touchDragThreshold = 8
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
 
 /** 小球和對話框使用目前可見範圍，輸入法鍵盤出現或側欄收合時重新定位。 */
 export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
+  const { t } = useLanguage()
   const ball = useRef<HTMLButtonElement>(null)
   const [bounds, setBounds] = useState<{ left: number; top: number; right: number; bottom: number; size: number; toolsTop: number; dock: Point }>()
   const [point, setPoint] = useState<Point | null>(null)
@@ -86,8 +89,8 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
     setPhase('open')
   }
   const startDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!event.isPrimary || event.button !== 0) return
     skipClick.current = false
-    if (event.button !== 0 || event.pointerType === 'touch') return
     drag.current = { id: event.pointerId, start: { x: event.clientX, y: event.clientY }, origin: { x, y }, moved: false }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -96,15 +99,25 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
     if (!d || d.id !== event.pointerId) return
     const dx = event.clientX - d.start.x
     const dy = event.clientY - d.start.y
-    if (!d.moved && Math.hypot(dx, dy) < 5) return
+    const threshold = event.pointerType === 'touch' ? touchDragThreshold : 5
+    if (!d.moved && Math.hypot(dx, dy) < threshold) return
     d.moved = true
     skipClick.current = true
     setPoint({ x: clamp(d.origin.x + dx, left, dock.x), y: clamp(d.origin.y + dy, top, bottom - size) })
   }
+  const finishTouch = (event: PointerEvent<HTMLButtonElement>) => {
+    const d = drag.current
+    if (event.pointerType !== 'touch' || d?.id !== event.pointerId) return
+    // 有些手機在拖動後的下一次輕點只送出指標事件；若另有 click，也只開合一次。
+    skipClick.current = true
+    if (!d.moved && Math.hypot(event.clientX - d.start.x, event.clientY - d.start.y) < touchDragThreshold) toggle()
+  }
   return <div className={'support-layer' + (mobileEnabled ? ' mobile-enabled' : '')}>
     <button ref={ball} className="support-ball" style={{ left: x, top: y, width: size, height: size }}
-      aria-label="客服問答" title="客服問答" aria-haspopup="dialog" aria-expanded={phase === 'open'}
-      onPointerDown={startDrag} onPointerMove={move} onLostPointerCapture={() => { drag.current = null }}
+      aria-label={t('客服問答','Help','ヘルプ','도움말')} title={t('客服問答','Help','ヘルプ','도움말')} aria-haspopup="dialog" aria-expanded={phase === 'open'}
+      onPointerDown={startDrag} onPointerMove={move} onPointerUp={finishTouch} onLostPointerCapture={event => {
+        if (drag.current?.id === event.pointerId) drag.current = null
+      }}
       onClick={event => { if (event.detail === 0 || !skipClick.current) toggle(); skipClick.current = false }}
       onKeyDown={event => { if (event.key === 'Escape' && phase === 'open') close() }}>
       <span className="support-glass" aria-hidden="true">

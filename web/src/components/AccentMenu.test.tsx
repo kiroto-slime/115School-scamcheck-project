@@ -11,7 +11,7 @@ describe('配色主題選單', () => {
     const btn = screen.getByRole('button', { name: /配色主題：青綠（預設）/ })
     expect(document.documentElement.dataset.accent).toBeUndefined()
     await userEvent.click(btn)
-    expect(screen.getAllByRole('menuitemradio')).toHaveLength(5)
+    expect(screen.getByRole('menuitemradio', { name: '黑白' })).toBeVisible()
     await userEvent.click(screen.getByRole('menuitemradio', { name: /海洋藍/ }))
     expect(document.documentElement.dataset.accent).toBe('blue')
     expect(localStorage.getItem('accent')).toBe('blue')

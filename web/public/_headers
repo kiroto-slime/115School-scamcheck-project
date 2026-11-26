@@ -7,7 +7,18 @@
 
 # 只有教學遊戲可由同一網站內嵌，其他頁面仍禁止內嵌。
 /games/block-parkour/*
+  X-Robots-Tag: noindex, nofollow
   ! X-Frame-Options
   ! Content-Security-Policy
   X-Frame-Options: SAMEORIGIN
   Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'
+
+# 允許爬蟲讀到 noindex，不把個人頁面與獨立遊戲框架列入搜尋結果。
+/result
+  X-Robots-Tag: noindex, nofollow
+/result/*
+  X-Robots-Tag: noindex, nofollow
+/admin
+  X-Robots-Tag: noindex, nofollow
+/history
+  X-Robots-Tag: noindex, nofollow

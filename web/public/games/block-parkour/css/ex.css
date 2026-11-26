@@ -77,6 +77,8 @@
 }
 
 .ex-page.corrupted .packet-helper::before { background: #ff6b7d; }
+.corrupted .packet-face .friendly-eyes { display: none; }
+.corrupted .packet-face .infected-eyes { display: inline; }
 
 @keyframes shiver {
   50% { transform: translate(1px, -1px); }

@@ -1,3 +1,5 @@
+import { useLanguage } from '../language'
+import { checkMessage } from '../checkMessages'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, consentRecorded, currentAiModel, postJson, researchId, researchWithdrawn, type AnalysisResult, type NeedsManualText } from '../api'
@@ -51,6 +53,8 @@ function clearDraft() {
 }
 
 export default function Check() {
+  const { t } = useLanguage()
+  const message = (value: string) => checkMessage(t, value)
   const { health } = useHealth()
   const limits = health?.limits ?? { max_text_chars: 10000, max_image_mb: 10, max_video_mb: 20, max_video_seconds: 30 }
   const nav = useNavigate()
@@ -66,7 +70,7 @@ export default function Check() {
   const [queryCofacts, setQueryCofacts] = useState(true)
   const [useAi, setUseAi] = useState(true)
   const retentionUntil = health?.modes.content_retention_until
-  const retentionText = retentionUntil ? retentionUntil.slice(0, 10).replace(/-/g, '/') : '專題結束'
+  const retentionText = retentionUntil ? retentionUntil.slice(0, 10).replace(/-/g, '/') : t('專題結束', 'the end of the project', 'プロジェクト終了時', '프로젝트 종료 시점')
   const aiAvailable = health?.modes.ai === 'gemini'
   const cofactsAvailable = health?.modes.cofacts === 'live'
   // 每分鐘次數用完的模型會冷卻：用讀到狀態的時間，每秒倒數
@@ -99,11 +103,11 @@ export default function Check() {
     const cooldown = Math.max(0, q.cooldown_seconds - passed)
     const blocked = q.daily_left <= 0 || cooldown > 0
     const chip = q.daily_left <= 0
-      ? <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日次數已用完</span>
+      ? <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">{t('今日次數已用完', 'Daily limit reached', '本日の上限に達しました', '오늘 사용량 소진')}</span>
       : cooldown > 0
-        ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">冷卻中，{cooldown} 秒後可用</span>
+        ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">{t(`冷卻中，${cooldown} 秒後可用`, `Available again in ${cooldown}s`, `あと${cooldown}秒で利用できます`, `${cooldown}초 후 이용 가능`)}</span>
         : k === 'virustotal'
-          ? <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">今日剩 {q.daily_left} 次・每分鐘最多 4 次</span>
+          ? <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{t(`今日剩 ${q.daily_left} 次・每分鐘最多 4 次`, `${q.daily_left} left today · up to 4 per minute`, `本日の残り${q.daily_left}回・毎分4回まで`, `오늘 ${q.daily_left}회 남음 · 분당 최대 4회`)}</span>
           : null
     return { blocked, cooldown, chip }
   }
@@ -268,12 +272,12 @@ export default function Check() {
     }
   }
 
-  const tabs: [Mode, string][] = [['text', '文字訊息'], ['image', '圖片截圖'], ['video', '短影片']]
+  const tabs: [Mode, string][] = [['text', t('文字訊息', 'Text', 'テキスト', '텍스트')], ['image', t('圖片截圖', 'Screenshot', 'スクリーンショット', '스크린샷')], ['video', t('短影片', 'Short video', '短い動画', '짧은 동영상')]]
   return (
     <form className="check-form space-y-5" onSubmit={submit} noValidate>
-      <h1>防詐查核</h1>
+      <h1>{t('防詐查核', 'Scam check', '詐欺チェック', '사기 확인')}</h1>
       <div className="card check-workbench space-y-5">
-      <div className="input-tabs" role="tablist" aria-label="輸入類型">
+      <div className="input-tabs" role="tablist" aria-label={t('輸入類型', 'Input type', '入力の種類', '입력 유형')}>
         {tabs.map(([m, label]) => (
           <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => switchMode(m)}
             className="input-tab">
@@ -288,22 +292,22 @@ export default function Check() {
       <div className="space-y-3">
         {mode === 'text' ? (
           <div>
-            <label htmlFor="text" className="label">貼上可疑訊息、廣告或對話內容</label>
+            <label htmlFor="text" className="label">{t('貼上可疑訊息、廣告或對話內容', 'Paste a suspicious message, ad or conversation', '不審なメッセージ・広告・会話を貼り付けてください', '의심스러운 메시지, 광고 또는 대화를 붙여 넣으세요')}</label>
             <textarea id="text" className="input min-h-52" value={text} maxLength={limits.max_text_chars}
-              onChange={(e) => setText(e.target.value)} placeholder="例如：您的包裹地址有誤，請點擊連結更新…" />
+              onChange={(e) => setText(e.target.value)} placeholder={t('例如：您的包裹地址有誤，請點擊連結更新…', 'Example: Your delivery address is incorrect. Click the link to update it…', '例：お荷物のお届け先に誤りがあります。リンクから更新してください…', '예: 배송 주소가 잘못되었습니다. 링크를 눌러 수정하세요…')} />
             <div className="mt-1 flex flex-wrap items-start justify-between gap-2 text-xs text-slate-500">
-              <p>IG、Facebook 貼文的內容網站讀不到，請截圖或錄影後上傳。</p>
-              <p className="ml-auto">{text.length} / {limits.max_text_chars} 字</p>
+              <p>{t('IG、Facebook 貼文的內容網站讀不到，請截圖或錄影後上傳。', 'For Instagram or Facebook posts, upload a screenshot or screen recording so we can check the content.', 'InstagramやFacebookの投稿はリンクから内容を読み取れません。スクリーンショットか画面録画をアップロードしてください。', 'Instagram이나 Facebook 게시물은 링크로 내용을 읽을 수 없습니다. 스크린샷이나 화면 녹화를 올려 주세요.')}</p>
+              <p className="ml-auto">{t(`${text.length} / ${limits.max_text_chars} 字`, `${text.length} / ${limits.max_text_chars} characters`, `${text.length} / ${limits.max_text_chars}文字`, `${text.length} / ${limits.max_text_chars}자`)}</p>
             </div>
             {SOCIAL_LINK.test(text) && (
               <div className="mt-2 space-y-2">
                 <Alert kind="warn">
-                  偵測到 IG、Facebook 或 Threads 的連結：網站只能檢查這個網址本身，<strong>看不到貼文裡的圖片、影片和文字</strong>。
-                  請把貼文截圖或螢幕錄影後上傳，才能分析內容。
+                  {t('偵測到 IG、Facebook 或 Threads 的連結：網站只能檢查這個網址本身，', 'Instagram, Facebook or Threads link detected. We can only check the link itself. ', 'Instagram、Facebook、Threadsのリンクを検出しました。確認できるのはURLのみです。', 'Instagram, Facebook 또는 Threads 링크가 있습니다. URL 자체만 확인할 수 있으며, ')}<strong>{t('看不到貼文裡的圖片、影片和文字', 'We cannot see the images, video or text in the post', '投稿内の画像・動画・文章は読み取れません', '게시물의 이미지, 동영상, 텍스트는 볼 수 없습니다')}</strong>{t('。', '. ', '。', '. ')}
+                  {t('請把貼文截圖或螢幕錄影後上傳，才能分析內容。', 'Upload a screenshot or screen recording to check the post itself.', '投稿内容を確認するには、スクリーンショットか画面録画をアップロードしてください。', '게시물 내용을 분석하려면 스크린샷이나 화면 녹화를 올려 주세요.')}
                 </Alert>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn-secondary" onClick={() => switchMode('image')}>改用圖片截圖</button>
-                  <button type="button" className="btn-secondary" onClick={() => switchMode('video')}>改用短影片</button>
+                  <button type="button" className="btn-secondary" onClick={() => switchMode('image')}>{t('改用圖片截圖', 'Use a screenshot', 'スクリーンショットを使う', '스크린샷으로 변경')}</button>
+                  <button type="button" className="btn-secondary" onClick={() => switchMode('video')}>{t('改用短影片', 'Use a short video', '短い動画を使う', '짧은 동영상으로 변경')}</button>
                 </div>
               </div>
             )}
@@ -312,28 +316,36 @@ export default function Check() {
           <>
             <div>
               <label htmlFor="file" className="label">
-                {mode === 'image' ? `選擇圖片（JPG、PNG、WebP，${limits.max_image_mb} MB 內）` : `選擇影片（MP4、MOV，${limits.max_video_mb} MB、${limits.max_video_seconds} 秒內）`}
+                {mode === 'image' ? t(`選擇圖片（JPG、PNG、WebP，${limits.max_image_mb} MB 內）`, `Choose an image (JPG, PNG or WebP, up to ${limits.max_image_mb} MB)`, `画像を選択（JPG、PNG、WebP、${limits.max_image_mb} MBまで）`, `이미지 선택(JPG, PNG, WebP, 최대 ${limits.max_image_mb} MB)`) : t(`選擇影片（MP4、MOV，${limits.max_video_mb} MB、${limits.max_video_seconds} 秒內）`, `Choose a video (MP4 or MOV, up to ${limits.max_video_mb} MB and ${limits.max_video_seconds} seconds)`, `動画を選択（MP4、MOV、${limits.max_video_mb} MB・${limits.max_video_seconds}秒まで）`, `동영상 선택(MP4, MOV, 최대 ${limits.max_video_mb} MB 및 ${limits.max_video_seconds}초)`)}
               </label>
-              <input id="file" type="file" className="input file:mr-3 file:min-h-10 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:text-teal-800"
-                accept={mode === 'image' ? '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp' : '.mp4,.mov,video/mp4,video/quicktime'}
-                onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+              <div className="relative rounded-lg focus-within:outline-2 focus-within:outline-teal-700">
+                <div aria-hidden="true" className="input flex min-h-11 items-center gap-3">
+                  <span className="shrink-0 rounded-lg bg-teal-50 px-3 py-2 text-teal-800">{t('選擇檔案', 'Choose file', 'ファイルを選択', '파일 선택')}</span>
+                  <span className="min-w-0 truncate">{file?.name || t('未選擇檔案', 'No file selected', '未選択', '선택한 파일 없음')}</span>
+                </div>
+                <input id="file" type="file" className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  accept={mode === 'image' ? '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp' : '.mp4,.mov,video/mp4,video/quicktime'}
+                  onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+              </div>
               <p className="mt-1 text-xs text-slate-500">
-                {mode === 'image' ? 'IG、Facebook 貼文請先截圖（含貼文文字與帳號名稱）再上傳；網站讀不到貼文連結的內容。' : 'IG、Facebook 影片請先用手機螢幕錄影再上傳；網站讀不到貼文連結的內容。'}
+                {mode === 'image' ? t('IG、Facebook 貼文請先截圖（含貼文文字與帳號名稱）再上傳；網站讀不到貼文連結的內容。', 'Upload a screenshot of the Instagram or Facebook post that includes its text and account name. We cannot read the post from its link.', 'InstagramやFacebookの投稿は、本文とアカウント名を含むスクリーンショットをアップロードしてください。リンクから内容は読み取れません。', 'Instagram이나 Facebook 게시물은 본문과 계정 이름이 보이게 캡처해 올려 주세요. 링크로는 게시물 내용을 읽을 수 없습니다.') : t('IG、Facebook 影片請先用手機螢幕錄影再上傳；網站讀不到貼文連結的內容。', 'Use your phone to record the Instagram or Facebook video on screen, then upload it. We cannot read the post from its link.', 'InstagramやFacebookの動画はスマートフォンで画面録画してからアップロードしてください。リンクから内容は読み取れません。', 'Instagram이나 Facebook 동영상은 휴대폰으로 화면을 녹화해 올려 주세요. 링크로는 게시물 내용을 읽을 수 없습니다.')}
               </p>
             </div>
-            {fileError && <Alert kind="error">{fileError}</Alert>}
-            {preview && mode === 'image' && <img src={preview} alt="已選擇的圖片預覽" className="max-h-64 rounded-lg border object-contain" />}
+            {fileError && <Alert kind="error">{message(fileError)}</Alert>}
+            {preview && mode === 'image' && <img src={preview} alt={t('已選擇的圖片預覽', 'Preview of selected image', '選択した画像のプレビュー', '선택한 이미지 미리보기')} className="max-h-64 rounded-lg border object-contain" />}
             {preview && mode === 'video' && <video src={preview} controls playsInline className="max-h-64 w-full rounded-lg border" />}
             {mode === 'video' && (aiOn
-              ? <Alert kind="info">影片會交給 Gemini 分析畫面與聲音，分析完成後即刪除 Google 上的檔案。</Alert>
-              : <Alert kind="warn">未使用 AI 時無法分析影片內容，請在下方「補充文字」輸入影片中的文字或旁白重點。</Alert>)}
-            {manualHint && <Alert kind="warn">{manualHint}</Alert>}
+              ? <Alert kind="info">{t('影片會交給 Gemini 分析畫面與聲音，分析完成後即刪除 Google 上的檔案。', 'Gemini analyzes the video and audio. The file is deleted from Google when analysis finishes.', 'Geminiに映像と音声を送信して分析します。完了後、Google上のファイルを削除します。', 'Gemini가 영상과 소리를 분석합니다. 분석이 끝나면 Google에 있는 파일을 삭제합니다.')}</Alert>
+              : <Alert kind="warn">{t('未使用 AI 時無法分析影片內容，請在下方「補充文字」輸入影片中的文字或旁白重點。', 'Without AI, we can only check text. Enter the video’s on-screen text or main narration points below.', 'AIを使わない場合は動画を分析できません。画面内の文字やナレーションの要点を下の「補足テキスト」に入力してください。', 'AI를 사용하지 않으면 동영상 내용을 분석할 수 없습니다. 아래 ‘추가 설명’에 화면 속 글이나 내레이션의 요점을 입력하세요.')}</Alert>)}
+            {manualHint && <Alert kind="warn">{message(manualHint)}</Alert>}
             <div>
-              <label htmlFor="extra" className="label">補充文字（{aiOn ? '選填' : '未使用 AI 時必填'}：圖片或影片中的文字、旁白重點）</label>
+              <label htmlFor="extra" className="label">{aiOn
+                ? t('補充文字（選填：圖片或影片中的文字、旁白重點）', 'Additional text (optional): text in the image or video, or key narration points', '補足テキスト（任意）：画像・動画内の文字、ナレーションの要点', '추가 설명(선택): 이미지·동영상 속 글이나 내레이션 요점')
+                : t('補充文字（未使用 AI 時必填：圖片或影片中的文字、旁白重點）', 'Additional text (required without AI): text in the image or video, or key narration points', '補足テキスト（AIを使わない場合は必須）：画像・動画内の文字、ナレーションの要点', '추가 설명(AI 미사용 시 필수): 이미지·동영상 속 글이나 내레이션 요점')}</label>
               <textarea id="extra" ref={extraRef} className="input min-h-24" value={extra} maxLength={limits.max_text_chars}
                 onChange={(e) => setExtra(e.target.value)} />
               {SOCIAL_LINK.test(extra) && (
-                <Alert kind="warn">補充文字裡的 IG、Facebook 或 Threads 連結只會檢查網址本身，網站看不到貼文內容；請以上傳的截圖或錄影為主。</Alert>
+                <Alert kind="warn">{t('補充文字裡的 IG、Facebook 或 Threads 連結只會檢查網址本身，網站看不到貼文內容；請以上傳的截圖或錄影為主。', 'For Instagram, Facebook or Threads links in your notes, we check only the URL. Upload a screenshot or recording to check the post.', '補足にあるInstagram、Facebook、ThreadsのリンクはURLのみ確認できます。投稿内容はスクリーンショットや録画でお送りください。', '추가 설명 속 Instagram, Facebook, Threads 링크는 URL만 확인합니다. 게시물 내용은 스크린샷이나 녹화로 올려 주세요.')}</Alert>
               )}
             </div>
           </>
@@ -342,72 +354,72 @@ export default function Check() {
       </div>
 
       <fieldset className="card space-y-3">
-        <legend className="sr-only">資料處理與同意</legend>
-        <h2 className="text-sm font-medium">資料處理說明</h2>
+        <legend className="sr-only">{t('資料處理與同意', 'Data processing and consent', 'データの取扱いと同意', '데이터 처리 및 동의')}</legend>
+        <h2 className="text-sm font-medium">{t('資料處理說明', 'How we handle your data', 'データの取扱い', '데이터 처리 안내')}</h2>
         <p className="text-sm text-slate-700">
-          送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；
-          沒有勾選「協助校內研究」時，分析結果（不含原文）保存 30 天後自動刪除。<Link to="/privacy">詳細說明</Link>
+          {t('送出後，系統會暫時處理你的內容以完成本次查核，原始檔案處理完立即刪除；', 'We process your content temporarily to run this check and delete the original files immediately afterward. ', '今回のチェックのため一時的に内容を処理し、処理後すぐに元のファイルを削除します。', '이번 확인을 위해 내용을 임시로 처리하며, 처리가 끝나면 원본 파일을 바로 삭제합니다. ')}
+          {t('沒有勾選「協助校內研究」時，分析結果（不含原文）保存 30 天後自動刪除。', 'If you opt out of school research, results without the original text are automatically deleted after 30 days. ', '「校内研究に協力する」を選ばない場合、原文を含まない分析結果は30日後に自動削除されます。', '‘교내 연구 참여’를 선택하지 않으면 원문을 제외한 분석 결과를 30일 후 자동으로 삭제합니다. ')}<Link to="/privacy">{t('詳細說明', 'Privacy details', '詳しい説明', '자세히 보기')}</Link>
         </p>
-        <p className="text-xs text-slate-500">外部查詢只會送至已勾選的服務，可展開下方設定調整。圖片、影片只有勾選 Gemini 時才會送到 Google，請勿上傳他人隱私。</p>
+        <p className="text-xs text-slate-500">{t('外部查詢只會送至已勾選的服務，可展開下方設定調整。圖片、影片只有勾選 Gemini 時才會送到 Google，請勿上傳他人隱私。', 'Only the services you select below receive data. Images and videos go to Google only when Gemini is selected. Do not upload other people’s private information.', '外部送信先は下の設定で選択したサービスのみです。画像・動画はGeminiを選んだ場合のみGoogleに送信されます。他人の個人情報をアップロードしないでください。', '아래 설정에서 선택한 서비스에만 데이터를 보냅니다. Gemini를 선택해야만 이미지와 동영상을 Google에 보냅니다. 타인의 개인정보를 올리지 마세요.')}</p>
         <details className="setting-disclosure" id="service-settings">
-          <summary><span className="disclosure-label">查核設定<span className="disclosure-hint">服務與 AI 模型</span></span></summary>
+          <summary><span className="disclosure-label">{t('查核設定', 'Check settings', 'チェック設定', '확인 설정')}<span className="disclosure-hint">{t('服務與 AI 模型', 'Services and AI model', 'サービスとAIモデル', '서비스와 AI 모델')}</span></span></summary>
           <div className="disclosure-content">
         <ServiceOptions options={([
-          cofactsAvailable && { key: 'cofacts', label: '送至 Cofacts 比對', sends: ['文字'], to: 'Cofacts「真的假的」查核資料庫', checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
-          aiAvailable && { key: 'ai', label: '使用 Gemini AI 分析', sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: 'Google Gemini（請勿上傳他人隱私）', checked: useAi, onChange: setUseAi,
+          cofactsAvailable && { key: 'cofacts', label: t('送至 Cofacts 比對', 'Compare with Cofacts', 'Cofactsと照合', 'Cofacts와 대조'), sends: ['文字'], to: t('Cofacts「真的假的」查核資料庫', 'Cofacts fact-check database', 'Cofactsのファクトチェックデータベース', 'Cofacts 팩트체크 데이터베이스'), checked: queryCofacts, onChange: setQueryCofacts, disabled: cofactsQ.blocked, chip: cofactsQ.chip },
+          aiAvailable && { key: 'ai', label: t('使用 Gemini AI 分析', 'Analyze with Gemini AI', 'Gemini AIで分析', 'Gemini AI로 분석'), sends: mode === 'text' ? ['文字'] : ['文字', '圖片影片'], to: t('Google Gemini（請勿上傳他人隱私）', 'Google Gemini (do not upload other people’s private information)', 'Google Gemini（他人の個人情報をアップロードしないでください）', 'Google Gemini(타인의 개인정보를 올리지 마세요)'), checked: useAi, onChange: setUseAi,
             disabled: aiBlocked,
             chip: aiNow ? (
-              <select aria-label="選擇 AI 模型" className="input min-h-11 py-1 text-xs" value={aiModel}
+              <select aria-label={t('選擇 AI 模型', 'Choose AI model', 'AIモデルを選択', 'AI 모델 선택')} className="input min-h-11 py-1 text-xs" value={aiModel}
                 onClick={(e) => e.stopPropagation()} onChange={(e) => setAiChoice(e.target.value)}>
-                <option value="">自動（目前 {aiNow.label}，剩 {aiNow.remaining} 次）</option>
+                <option value="">{t(`自動（目前 ${aiNow.label}，剩 ${aiNow.remaining} 次）`, `Auto (${aiNow.label}, ${aiNow.remaining} left)`, `自動（現在 ${aiNow.label}、残り${aiNow.remaining}回）`, `자동(현재 ${aiNow.label}, ${aiNow.remaining}회 남음)`)}</option>
                 {aiModels.map((m) => (
                   <option key={m.id} value={m.id} disabled={m.remaining <= 0 || m.cooldown > 0}>
-                    {m.label}（{m.remaining <= 0 ? '今日已用完' : m.cooldown > 0 ? `冷卻中 ${m.cooldown} 秒` : `剩 ${m.remaining} 次`}）
+                    {m.label}{t('（', ' (', '（', ' (')}{m.remaining <= 0 ? t('今日已用完', 'daily limit reached', '本日の上限', '오늘 사용량 소진') : m.cooldown > 0 ? t(`冷卻中 ${m.cooldown} 秒`, `available in ${m.cooldown}s`, `あと${m.cooldown}秒`, `${m.cooldown}초 후 가능`) : t(`剩 ${m.remaining} 次`, `${m.remaining} left`, `残り${m.remaining}回`, `${m.remaining}회 남음`)}{t('）', ')', '）', ')')}
                   </option>
                 ))}
               </select>
             ) : aiWait > 0
-              ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">使用人數較多，AI 冷卻中，{aiWait} 秒後可用</span>
-              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">今日 AI 額度已用完</span>,
+              ? <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700" role="status">{t(`使用人數較多，AI 冷卻中，${aiWait} 秒後可用`, `AI is busy. Try again in ${aiWait}s.`, `AIが混み合っています。あと${aiWait}秒で利用できます。`, `AI 사용량이 많습니다. ${aiWait}초 후 이용할 수 있습니다.`)}</span>
+              : <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">{t('今日 AI 額度已用完', 'Daily AI limit reached', '本日のAI利用枠を使い切りました', '오늘 AI 사용량 소진')}</span>,
             detail: (
               <p className="text-xs text-slate-600">
-                選「自動」時，免費額度用完會自動換下一個模型（共剩 {aiLeft} 次）；自己選的模型用完也會自動往下換：{aiModels.map((m) => `${m.label} 剩 ${m.remaining}`).join(' → ')}
+                {t(`選「自動」時，免費額度用完會自動換下一個模型（共剩 ${aiLeft} 次）；自己選的模型用完也會自動往下換：`, `Auto switches to the next model when the free limit is reached (${aiLeft} uses left in total). This also applies to a model you select. Model order: `, `「自動」では無料枠を使い切ると次のモデルに切り替わります（合計残り${aiLeft}回）。手動で選んだモデルの場合も次の順に切り替わります：`, `자동 선택 시 무료 사용량이 소진되면 다음 모델로 전환합니다(전체 ${aiLeft}회 남음). 직접 선택한 모델도 다음 순서로 전환합니다: `)}{aiModels.map((m) => t(`${m.label} 剩 ${m.remaining}`, `${m.label}: ${m.remaining} left`, `${m.label} 残り${m.remaining}回`, `${m.label} ${m.remaining}회 남음`)).join(' → ')}
               </p>
             ) },
-          googleAvailable && { key: 'google', label: 'Google 網址安全與事實查核', sends: ['網址', '文字'], to: 'Google 安全瀏覽、Google 事實查核搜尋', checked: queryGoogle, onChange: setQueryGoogle, disabled: googleQ.blocked, chip: googleQ.chip },
-          vtAvailable && { key: 'vt', label: 'VirusTotal 病毒掃描', sends: ['網域'], to: 'VirusTotal（只查已有的掃描紀錄）', checked: queryVt, onChange: setQueryVt, disabled: vtQ.blocked, chip: vtQ.chip },
+          googleAvailable && { key: 'google', label: t('Google 網址安全與事實查核', 'Google URL safety and fact-checks', 'GoogleのURL安全性チェックとファクトチェック', 'Google URL 안전성 검사 및 팩트체크'), sends: ['網址', '文字'], to: t('Google 安全瀏覽、Google 事實查核搜尋', 'Google Safe Browsing and Fact Check Tools', 'Googleセーフブラウジングとファクトチェック検索', 'Google 세이프 브라우징 및 팩트체크 검색'), checked: queryGoogle, onChange: setQueryGoogle, disabled: googleQ.blocked, chip: googleQ.chip },
+          vtAvailable && { key: 'vt', label: t('VirusTotal 病毒掃描', 'VirusTotal threat reports', 'VirusTotalの脅威レポート', 'VirusTotal 위협 보고서'), sends: ['網域'], to: t('VirusTotal（只查已有的掃描紀錄）', 'VirusTotal (existing scan reports only)', 'VirusTotal（既存のスキャン結果のみ）', 'VirusTotal(기존 검사 기록만 조회)'), checked: queryVt, onChange: setQueryVt, disabled: vtQ.blocked, chip: vtQ.chip },
         ].filter(Boolean) as ServiceOption[])} />
           </div>
         </details>
         {/* 預設展開，讓「協助校內研究」預設勾選的狀態一眼看得到 */}
         <details className="setting-disclosure" id="research-consent" open>
-          <summary><span className="disclosure-label">參與匿名研究（選填）</span></summary>
+          <summary><span className="disclosure-label">{t('參與匿名研究（選填）', 'Take part in anonymous research (optional)', '匿名研究に参加する（任意）', '익명 연구 참여(선택)')}</span></summary>
           <div className="disclosure-content space-y-3">
         <label className="consent-row">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={consentB}
             onChange={(e) => { setConsentB(e.target.checked); if (!e.target.checked) setConsentC(false) }} />
           <span className="min-w-0 text-sm">
-            <span className="block font-medium">協助校內研究（選填）</span>
-            <span className="mt-1 block text-xs text-slate-500">同意後會保存這次已遮蔽個資的訊息內容與可疑網址及分析結果，供校內防詐研究，保存至 {retentionText} 後刪除。取消勾選則不保存內容。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。</span>
+            <span className="block font-medium">{t('協助校內研究（選填）', 'Support school research (optional)', '校内研究に協力する（任意）', '교내 연구 참여(선택)')}</span>
+            <span className="mt-1 block text-xs text-slate-500">{t(`同意後會保存這次已遮蔽個資的訊息內容與可疑網址及分析結果，供校內防詐研究，保存至 ${retentionText} 後刪除。取消勾選則不保存內容。系統會盡力自動遮蔽，仍可能漏遮；請勿在內容中填寫他人的個資。`, `If you agree, we keep the message and suspicious URLs with personal details masked, along with the results, for school fraud-prevention research. We delete them after ${retentionText}. Uncheck this box to keep the content from being stored. Automatic masking can miss details. Please leave out other people’s personal information.`, `同意すると、個人情報を伏せたメッセージと不審なURL、分析結果を校内の詐欺防止研究のために保存し、${retentionText}を過ぎたら削除します。チェックを外すと内容は保存しません。自動処理では個人情報が残る場合があるため、他人の個人情報を入力しないでください。`, `동의하면 개인정보를 가린 메시지와 의심스러운 URL, 분석 결과를 교내 사기 예방 연구를 위해 보관하고 ${retentionText} 이후 삭제합니다. 선택을 해제하면 내용을 보관하지 않습니다. 자동 처리로 개인정보가 남을 수 있으니 타인의 개인정보는 입력하지 마세요.`)}</span>
           </span>
         </label>
         <label className="consent-row">
           <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={!consentB} checked={consentC} onChange={(e) => setConsentC(e.target.checked)} />
           <span className="min-w-0 text-sm">
-            <span className="block font-medium">教育產品與商業研究（選填）</span>
-            <span className="mt-1 block text-xs text-slate-500">同意將經審查的衍生統計資料用於教育產品及商業可行性研究。</span>
+            <span className="block font-medium">{t('教育產品與商業研究（選填）', 'Educational products and commercial research (optional)', '教育製品・事業化に関する研究（任意）', '교육 제품 및 사업성 연구(선택)')}</span>
+            <span className="mt-1 block text-xs text-slate-500">{t('同意將經審查的衍生統計資料用於教育產品及商業可行性研究。', 'I agree that reviewed statistics derived from the research may be used for educational products and commercial feasibility studies.', '審査済みの派生統計を教育製品や事業化の可能性を調べる研究に利用することに同意します。', '검토를 거친 파생 통계를 교육 제품과 사업 타당성 연구에 사용하는 데 동의합니다.')}</span>
           </span>
         </label>
-        {wasWithdrawn && !consentB && <p className="text-xs text-slate-500">你先前已撤回研究同意，如要再次參與請自行勾選。</p>}
-        <p className="text-xs text-slate-500">不參與研究也能使用查核服務。</p>
+        {wasWithdrawn && !consentB && <p className="text-xs text-slate-500">{t('你先前已撤回研究同意，如要再次參與請自行勾選。', 'You previously withdrew consent. Select this option yourself if you want to take part again.', '以前に研究への同意を撤回しています。再び参加する場合はご自身で選択してください。', '이전에 연구 동의를 철회했습니다. 다시 참여하려면 직접 선택하세요.')}</p>}
+        <p className="text-xs text-slate-500">{t('不參與研究也能使用查核服務。', 'You can use the check without taking part in research.', '研究に参加しなくてもチェックを利用できます。', '연구에 참여하지 않아도 확인 서비스를 이용할 수 있습니다.')}</p>
           </div>
         </details>
       </fieldset>
 
-      {consentNotice && <Alert kind="warn">{consentNotice}</Alert>}
-      {error && <Alert kind="error">{error}</Alert>}
-      {busy ? <Spinner label={busy} /> : (
-        <NaughtyButton empty={mode === 'text' ? !text.trim() : !file} hint={mode === 'text' ? '先貼上要查核的訊息喔！' : '先選擇要上傳的檔案喔！'}>開始查核</NaughtyButton>
+      {consentNotice && <Alert kind="warn">{message(consentNotice)}</Alert>}
+      {error && <Alert kind="error">{message(error)}</Alert>}
+      {busy ? <Spinner label={message(busy)} /> : (
+        <NaughtyButton empty={mode === 'text' ? !text.trim() : !file} hint={mode === 'text' ? t('先貼上要查核的訊息喔！', 'Paste a message to check first.', '先に確認したいメッセージを貼り付けてください。', '먼저 확인할 메시지를 붙여 넣으세요.') : t('先選擇要上傳的檔案喔！', 'Choose a file to upload first.', '先にアップロードするファイルを選んでください。', '먼저 올릴 파일을 선택하세요.')}>{t('開始查核', 'Start check', 'チェックを開始', '확인 시작')}</NaughtyButton>
       )}
     </form>
   )
