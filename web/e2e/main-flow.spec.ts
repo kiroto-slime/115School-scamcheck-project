@@ -5,6 +5,32 @@ async function noHorizontalOverflow(page: import('@playwright/test').Page) {
   expect(overflow).toBeLessThanOrEqual(1)
 }
 
+test('公開教學可直接閱讀，分享資訊隨頁面切換', async ({ page, request }, info) => {
+  test.skip(info.project.name !== 'Desktop', '初始 HTML 和路由標籤只需驗證一次')
+  const guide = await request.get('/guides/parcel-message')
+  expect(await guide.text()).toContain('新臺幣 12 元重新配送費')
+  const initialHome = await (await request.get('/')).text()
+  expect(initialHome).toContain('application/ld+json')
+  expect(initialHome).toContain('常見問題')
+
+  await page.goto('/')
+  const schema = page.locator('head script[type="application/ld+json"]')
+  await expect(schema).toHaveCount(1)
+  expect(JSON.parse(await schema.innerText())).toMatchObject({ '@type': 'WebApplication', isAccessibleForFree: true })
+  const image = page.locator('meta[property="og:image"]')
+  await expect(image).toHaveAttribute('content', /^https:\/\//)
+  const preview = await request.get(new URL((await image.getAttribute('content'))!).pathname)
+  expect(preview.status()).toBe(200)
+  expect(preview.headers()['content-type']).toContain('image/jpeg')
+
+  await page.getByRole('link', { name: '閱讀範例' }).click()
+  await expect(schema).toHaveCount(0)
+  await expect(image).toHaveCount(1)
+  await page.getByRole('link', { name: '查核紀錄', exact: true }).filter({ visible: true }).click()
+  await expect(image).toHaveCount(0)
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+})
+
 test('主要查核流程：輸入文字 → 結果頁', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '識詐數據庫', level: 1 })).toBeVisible()

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { PublicFaq } from '../components/PublicGuideContent'
 import { useHealth } from '../components/ui'
 import { useLanguage } from '../language'
 import './home.css'
@@ -58,7 +59,7 @@ export default function Home() {
         <div className="home-intro">
           <h1>{t('識詐數據庫', 'ScamCheck', '詐欺チェック', '사기 확인')}</h1>
           <p className="home-lead">{t('收到「包裹地址有誤」的簡訊？', 'A text says your parcel is on hold?', '「住所不備」のSMSが届いたら？', '“배송 주소를 확인해 주세요”라는 문자를 받으셨나요?')}</p>
-          <p className="home-description">{t('點連結前，先查一查。貼上可疑訊息、截圖或短片，看看有哪些地方值得留意。', 'Before opening the link, take a closer look. Check a message, screenshot or short video for warning signs.', 'リンクを開く前に、ひとまず確認。届いたメッセージやスクリーンショット、短い動画から注意点を探せます。', '링크를 열기 전에 잠시 확인해 보세요. 의심스러운 메시지, 스크린샷, 짧은 영상에서 주의할 점을 살펴볼 수 있어요.')}</p>
+          <p className="home-description">{t('點連結前，先查一查。貼上可疑訊息、截圖或短片，免費查看有哪些地方值得留意。', 'Before opening the link, use this free tool to check a message, screenshot or short video for warning signs.', 'リンクを開く前に、無料で確認。届いたメッセージやスクリーンショット、短い動画から注意点を探せます。', '링크를 열기 전에 무료로 확인해 보세요. 의심스러운 메시지, 스크린샷, 짧은 영상에서 주의할 점을 살펴볼 수 있어요.')}</p>
           <div className="home-actions">
             <Link to="/check" className="btn-primary"><HomeIcon kind="check" />{t('開始防詐查核', 'Check a message', 'メッセージを確認', '메시지 확인하기')}</Link>
             <Link to="/research" className="btn-secondary home-research-link"><HomeIcon kind="research" />{t('參加匿名研究測驗', 'Join the anonymous study', '匿名の研究テストに参加', '익명 연구 설문 참여하기')}</Link>
@@ -74,6 +75,8 @@ export default function Home() {
         </div>
         <Link to="/guides/parcel-message" className="home-example-link">{t('閱讀範例', 'Read example', '例を読む', '예시 읽기')}<HomeIcon kind="arrow" /></Link>
       </section>
+
+      <PublicFaq t={t} />
 
       <details className="card home-disclosure">
         <summary>{t('研究計畫', 'About the research', '研究について', '연구 소개')}</summary>

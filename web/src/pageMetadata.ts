@@ -1,6 +1,8 @@
 import type { Copy } from './language'
 
 export const SITE_ORIGIN = 'https://scamcheck.slimebvs.net'
+export const SOURCE_URL = 'https://github.com/kiroto-slime/115School-scamcheck-project'
+const shareImage = SITE_ORIGIN + '/share/scamcheck.jpg'
 const brand: Copy = ['識詐數據庫', 'ScamCheck', '詐欺チェック', '사기 확인']
 
 type PageCopy = { title: Copy; description: Copy; private?: true }
@@ -115,12 +117,12 @@ export function pageMetadata(pathname: string, select: (...copy: Copy) => string
   }
 }
 export type HeadTag = {
-  tag: 'title' | 'meta' | 'link'
+  tag: 'title' | 'meta' | 'link' | 'script'
   attrs?: Record<string, string>
   text?: string
 }
 
-export function pageHead(pathname: string, select?: (...copy: Copy) => string): HeadTag[] {
+export function pageHead(pathname: string, select: (...copy: Copy) => string = zh => zh): HeadTag[] {
   const page = pageMetadata(pathname, select)
   const tags: HeadTag[] = [
     { tag: 'title', text: page.title },
@@ -133,6 +135,31 @@ export function pageHead(pathname: string, select?: (...copy: Copy) => string): 
     { tag: 'meta', attrs: { property: 'og:url', content: page.canonical } },
     { tag: 'meta', attrs: { property: 'og:title', content: page.title } },
     { tag: 'meta', attrs: { property: 'og:description', content: page.description } },
+    { tag: 'meta', attrs: { property: 'og:image', content: shareImage } },
+    { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+    { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+    { tag: 'meta', attrs: { property: 'og:image:alt', content: select(
+      '識詐數據庫 ScamCheck，包裹旁的手機顯示地址確認通知。',
+      'ScamCheck: a phone beside a parcel shows an address confirmation message.',
+      'ScamCheck。荷物の横にあるスマートフォンに住所確認の通知が表示されています。',
+      'ScamCheck. 택배 상자 옆 휴대전화에 주소 확인 알림이 표시되어 있습니다.',
+    ) } },
   )
+  if (page.canonical === SITE_ORIGIN + '/') {
+    tags.push({ tag: 'script', attrs: { type: 'application/ld+json' }, text: JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      '@id': SITE_ORIGIN + '/#app',
+      name: brand[0],
+      alternateName: brand[1],
+      url: page.canonical,
+      sameAs: SOURCE_URL,
+      inLanguage: ['zh-Hant', 'en', 'ja', 'ko'],
+      isAccessibleForFree: true,
+      description: pageMetadata('/check', select).description,
+      featureList: select('比對警政署 165 涉詐網站公開名單', 'Check domains against the Taiwan police 165 public list',
+        '台湾警察の165公開リストでドメインを照合', '대만 경찰 165 공개 목록과 도메인 대조'),
+    }) })
+  }
   return tags
 }

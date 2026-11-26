@@ -18,9 +18,7 @@ import Game from './pages/Game'
 import { useTheme } from './prefs'
 import { LanguageProvider, useLanguage } from './language'
 import { LanguageMenu } from './components/LanguageMenu'
-import { pageHead } from './pageMetadata'
-
-const SOURCE_URL = 'https://github.com/kiroto-slime/115School-scamcheck-project'
+import { pageHead, SOURCE_URL } from './pageMetadata'
 
 function Icon({ d, className = 'h-6 w-6' }: { d: string; className?: string }) {
   return (
