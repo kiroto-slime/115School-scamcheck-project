@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { clearExpiredContent, purgeExpired } from '../analysis'
 import { twTime } from '../export-format'
 import { DEFAULT_SETTINGS } from '../settings'
-import { adminHeaders, call, count, SCAM } from './helpers'
+import { ADMIN_PASSWORD, adminHeaders, call, count, SCAM } from './helpers'
 
 async function fullFlow() {
   const s = (await call('/api/research/start', { body: { consent_research: true, consent_secondary: false } })).json
@@ -84,8 +84,19 @@ describe('管理員', () => {
   })
   it('未登入不能匯出或看統計；密碼錯誤被拒', async () => {
     expect((await call('/api/admin/export-data')).status).toBe(401)
+    expect((await call('/api/admin/statistics')).status).toBe(401)
+    expect((await call('/api/admin/backup.json', { body: { password: ADMIN_PASSWORD } })).status).toBe(401)
     expect((await call('/api/admin/statistics', { headers: { Authorization: 'Bearer forged.token' } })).status).toBe(401)
     expect((await call('/api/admin/login', { body: { password: 'wrong' } })).status).toBe(401)
+  })
+
+  it('登出立即撤銷該次登入，其他登入仍可用', async () => {
+    const first = await adminHeaders()
+    const other = await adminHeaders()
+    expect((await call('/api/admin/logout', { headers: first, method: 'POST' })).status).toBe(200)
+    expect((await call('/api/admin/statistics', { headers: first })).status).toBe(401)
+    expect((await call('/api/admin/backup.json', { headers: first, body: { password: ADMIN_PASSWORD } })).status).toBe(401)
+    expect((await call('/api/admin/statistics', { headers: other })).status).toBe(200)
   })
 
   it('沒設定密碼時管理功能關閉', async () => {
@@ -270,7 +281,11 @@ describe('管理員', () => {
   it('完整備份不含原始投稿', async () => {
     await call('/api/analyze/text', { body: { text: SCAM } })
     const h = await adminHeaders()
-    const r = await call('/api/admin/backup.json', { headers: h })
+    expect((await call('/api/admin/backup.json', { headers: h })).status).not.toBe(200)
+    expect((await call('/api/admin/backup.json', { headers: h, body: {} })).status).toBe(422)
+    expect((await call('/api/admin/backup.json', { headers: h, body: { password: 'incorrect' } })).status).toBe(403)
+    expect(await count('audit_logs', "action = 'backup'")).toBe(0)
+    const r = await call('/api/admin/backup.json', { headers: h, body: { password: ADMIN_PASSWORD } })
     expect(r.status).toBe(200)
     expect(Object.keys(r.json.tables)).toContain('research_responses')
     expect(JSON.stringify(r.json)).not.toContain('包裹地址錯誤')

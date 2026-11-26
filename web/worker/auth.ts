@@ -2,9 +2,9 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { z } from 'zod'
 import type { AppSettings } from './settings'
-import { b64url, fromB64url, hmacHex, HttpError, safeEqual, sha256 } from './util'
+import { b64url, fromB64url, hmacHex, HttpError, newId, safeEqual, sha256 } from './util'
 
-export type AppEnv = { Bindings: Env; Variables: { settings: AppSettings; admin: string } }
+export type AppEnv = { Bindings: Env; Variables: { settings: AppSettings; admin: string; logoutLogId: string } }
 export type Ctx = Context<AppEnv>
 
 const TOKEN_MINUTES = 120
@@ -17,18 +17,19 @@ export async function checkPassword(env: Env, input: string): Promise<boolean> {
 }
 
 export async function createToken(env: Env): Promise<string> {
-  const payload = b64url(JSON.stringify({ u: 'admin', exp: Date.now() + TOKEN_MINUTES * 60_000 }))
+  const payload = b64url(JSON.stringify({ u: 'admin', sid: newId(), exp: Date.now() + TOKEN_MINUTES * 60_000 }))
   return `${payload}.${await hmacHex(await sessionKey(env.ADMIN_PASSWORD!), payload)}`
 }
 
-async function readToken(env: Env, token: string): Promise<string | null> {
+async function readSessionId(env: Env, token: string): Promise<string | null> {
   if (!env.ADMIN_PASSWORD) return null
   const [payload, sig] = token.split('.')
   if (!payload || !sig) return null
   if (!safeEqual(sig, await hmacHex(await sessionKey(env.ADMIN_PASSWORD), payload))) return null
   try {
     const d = JSON.parse(fromB64url(payload))
-    return typeof d.exp === 'number' && d.exp > Date.now() ? String(d.u) : null
+    return d.u === 'admin' && typeof d.exp === 'number' && d.exp > Date.now()
+      && typeof d.sid === 'string' && /^[a-f0-9]{32}$/.test(d.sid) ? d.sid : null
   } catch {
     return null
   }
@@ -37,9 +38,14 @@ async function readToken(env: Env, token: string): Promise<string | null> {
 export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.env.ADMIN_PASSWORD) throw new HttpError(503, '管理員密碼尚未設定（請在 Cloudflare 後台設定 ADMIN_PASSWORD）。')
   const auth = c.req.header('Authorization') ?? ''
-  const user = auth.startsWith('Bearer ') ? await readToken(c.env, auth.slice(7)) : null
-  if (!user) throw new HttpError(401, '需要管理員登入，或登入已逾時。')
-  c.set('admin', user)
+  const sid = auth.startsWith('Bearer ') ? await readSessionId(c.env, auth.slice(7)) : null
+  if (!sid) throw new HttpError(401, '請重新登入管理後台。')
+  // 登出事件的主鍵只含隨機登入編號。即使拿到稽核紀錄也無法當作憑證使用。
+  const logoutLogId = 'logout:' + sid
+  if (await c.env.DB.prepare('SELECT 1 FROM audit_logs WHERE log_id = ?').bind(logoutLogId).first())
+    throw new HttpError(401, '這次登入已結束，請重新登入。')
+  c.set('admin', 'admin')
+  c.set('logoutLogId', logoutLogId)
   await next()
 }
 

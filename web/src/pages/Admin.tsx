@@ -37,12 +37,21 @@ export default function Admin() {
 
   if (!token) return <Login onLogin={(t) => { sessionStorage.setItem(TOKEN_KEY, t); setToken(t) }} />
 
+  const logout = async () => {
+    if (await call('/api/admin/logout', { method: 'POST' })) {
+      sessionStorage.removeItem(TOKEN_KEY)
+      setToken(null)
+      setNotice(null)
+      setTab('overview')
+    }
+  }
+
   const tabs: [Tab, string][] = [['overview', '總覽與統計'], ['records', '研究紀錄'], ['cases', '案例管理'], ['patterns', '風險模式審核'], ['business', '商業指標'], ['data', '匯出與資料管理'], ['settings', '系統設定'], ['game', '遊戲題庫']]
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1>管理員</h1>
-        <button className="btn-secondary" onClick={() => { sessionStorage.removeItem(TOKEN_KEY); setToken(null) }}>登出</button>
+        <button className="btn-secondary" onClick={logout}>登出</button>
       </div>
       <div className="flex flex-wrap gap-2" role="tablist">
         {tabs.map(([t, l]) => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'btn-primary' : 'btn-secondary'} onClick={() => setTab(t)}>{l}</button>)}
@@ -309,6 +318,7 @@ function AiTest({ call }: { call: Call }) {
 
 function DataTools({ token, call, dataset, onDone, onError }: { token: string; call: Call; dataset: Dataset; onDone: (s: string) => void; onError: (s: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirmBackup, setConfirmBackup] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const { data: logs, reload } = useLoad<any[]>(call, '/api/admin/audit-logs')
   const day = new Date().toISOString().slice(0, 10)
@@ -338,13 +348,23 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
     ['demo', 'DEMO／舊查核待確認', `10/23 以前的測試：${info(demoRows)}`],
     ['all', '全選', '兩個都匯出，會下載 2 個檔案'],
   ]
-  const backup = async () => {
+  const backup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const password = new FormData(event.currentTarget).get('password')
+    event.currentTarget.reset()
+    onError('')
+    onDone('')
     setBusy('產生備份中…')
     try {
-      const r = await fetch('/api/admin/backup.json', { headers: { Authorization: `Bearer ${token}` } })
+      const r = await fetch('/api/admin/backup.json', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? '備份失敗')
       downloadBlob(await r.blob(), `識詐數據庫_完整備份_${day}.json`, 'application/json')
       onDone('已下載完整備份')
+      setConfirmBackup(false)
       reload()
     } catch (e) { onError(e instanceof Error ? e.message : '備份失敗') } finally { setBusy(null) }
   }
@@ -368,10 +388,19 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
         {busy ? <Spinner label={busy} /> : (
           <div className="flex flex-col gap-2 sm:flex-row">
             <button className="btn-primary" onClick={exportExcel} disabled={total === 0}>匯出研究資料（.xlsx，將匯出 {total >= 200 ? '200 筆以上' : `${total} 筆`}）</button>
-            <button className="btn-secondary" onClick={backup}>下載完整備份（.json）</button>
+            {!confirmBackup && <button className="btn-secondary" onClick={() => setConfirmBackup(true)}>下載完整備份（.json）</button>}
           </div>
         )}
-        <p className="text-xs text-slate-500">完整備份包含所有資料表，換帳號或搬家時可用來還原。Cloudflare 另外會自動保留 7 天內的資料庫還原點。</p>
+        {confirmBackup && !busy && <form onSubmit={backup} className="space-y-2">
+          <label className="label">請再次輸入管理密碼以下載完整備份
+            <input autoFocus required name="password" type="password" autoComplete="current-password" className="input mt-1" maxLength={200} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary" type="submit">確認並下載 JSON</button>
+            <button className="btn-secondary" type="button" onClick={() => setConfirmBackup(false)}>取消</button>
+          </div>
+        </form>}
+        <p className="text-xs text-slate-500">完整備份包含研究與管理資料，每次下載都需要重新驗證管理密碼。</p>
       </Section>
       <AiTest call={call} />
       <Section title="測試資料">

@@ -12,11 +12,12 @@ import { redactPii, stripUrlQueries } from '../redact'
 import { audit, HttpError, newId, nowIso, parseJson } from '../util'
 
 export const admin = new Hono<AppEnv>()
+const passwordBody = z.object({ password: z.string().min(1).max(200) })
 
 admin.post('/admin/login', async (c) => {
   await rateLimit(c, 'LOGIN_LIMITER')
   if (!c.env.ADMIN_PASSWORD) throw new HttpError(503, '管理員密碼尚未設定，請在 Cloudflare 後台的 Variables and Secrets 新增 ADMIN_PASSWORD。')
-  const b = await readBody(c, z.object({ password: z.string().min(1).max(200) }))
+  const b = await readBody(c, passwordBody)
   if (!(await checkPassword(c.env, b.password))) {
     await audit(c.env.DB, 'unknown', 'login_failed')
     throw new HttpError(401, '密碼錯誤。')
@@ -27,6 +28,11 @@ admin.post('/admin/login', async (c) => {
 
 const guarded = new Hono<AppEnv>()
 guarded.use('*', requireAdmin)
+guarded.post('/logout', async (c) => {
+  await c.env.DB.prepare("INSERT INTO audit_logs (log_id, actor, action, created_at) VALUES (?, 'admin', 'logout', ?) ON CONFLICT(log_id) DO NOTHING")
+    .bind(c.get('logoutLogId'), nowIso()).run()
+  return c.json({ logged_out: true })
+})
 const datasetOf = (c: { req: { query: (k: string) => string | undefined } }) => {
   const d = c.req.query('dataset') ?? 'formal'
   if (d !== 'formal' && d !== 'demo') throw new HttpError(422, '資料集只能是 formal 或 demo。')
@@ -42,8 +48,14 @@ guarded.get('/export-data', async (c) => {
   return c.json(data)
 })
 
-/** 完整備份（JSON）：所有研究相關資料表，不含原始投稿 */
-guarded.get('/backup.json', async (c) => {
+/** 讀取研究資料表前，每次都重新驗證管理密碼。 */
+guarded.post('/backup.json', async (c) => {
+  await rateLimit(c, 'LOGIN_LIMITER')
+  const { password } = await readBody(c, passwordBody)
+  if (!(await checkPassword(c.env, password))) {
+    await audit(c.env.DB, 'admin', 'backup_password_failed')
+    throw new HttpError(403, '管理密碼不正確，請重新輸入再下載。')
+  }
   const tables = ['analysis_records', 'source_results', 'research_participants', 'research_responses', 'consent_records', 'pattern_dataset', 'research_cases',
     'feedback_records', 'product_survey_responses', 'business_events', 'app_settings', 'audit_logs', 'game_questions']
   const out: Record<string, unknown[]> = {}
