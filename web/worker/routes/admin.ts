@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin } from '../auth'
 import { clearDemo, seedDemo } from '../demo'
 import { Gemini, GeminiError } from '../gemini'
-import { BACKUP_MODELS, backupAvailable, runBackupModel } from '../backup-ai'
+import { BACKUP_CATALOG, BACKUP_KEYS, backupAvailable, backupModelsFor, groqModelIds, PROVIDER_LABEL, runBackupModel } from '../backup-ai'
 import { calibrateUsage, currentModel, modelStates, siteErrors, siteUsage } from '../aimodels'
 import { adminQuota, refreshQuota, saveQuotaSchedule } from '../quota-sync'
 import { aiMode, AppSettings, saveSettings } from '../settings'
@@ -210,6 +210,7 @@ guarded.put('/settings', async (c) => {
       media: z.boolean(),
     })).min(1).max(20),
     gemini_daily_limit: z.number().int().min(0).max(100_000),
+    backup_models: z.array(z.enum(BACKUP_KEYS)).max(BACKUP_KEYS.length).refine(v => new Set(v).size === v.length, '備援模型不能重複。'),
     cofacts_enabled: z.boolean(),
     cofacts_daily_limit: z.number().int().min(0).max(100_000),
     google_daily_limit: z.number().int().min(0).max(100_000),
@@ -269,28 +270,46 @@ guarded.post('/ai/test', async (c) => {
   return c.json(out)
 })
 
-/** 測試備援 AI：用一則固定的假詐騙訊息實際呼叫每個備援模型（正式站才連得到 Workers AI） */
+/** 測試備援 AI：用一則固定的假詐騙訊息實際呼叫候選名單的每個模型（正式站才連得到 Workers AI） */
 guarded.post('/ai/backup-test', async (c) => {
   await rateLimit(c, 'DEFAULT_LIMITER')
   const sample = '【客服通知】您上月訂單被誤設為分期付款，每月將自動扣款，請立即到 ATM 操作解除，否則帳戶將被凍結。'
+  const enabled = new Set(backupModelsFor(c.get('settings').backup_models).map(m => m.key))
   const results = []
-  for (const m of BACKUP_MODELS) {
+  for (const m of BACKUP_CATALOG) {
+    const base = { key: m.key, provider: m.provider, provider_label: PROVIDER_LABEL[m.provider], model: m.model, label: m.label, enabled: enabled.has(m.key) }
     if (!backupAvailable(c.env, m)) {
-      results.push({ provider: m.provider, model: m.model, label: m.label, status: 'skipped', message: m.provider === 'groq' ? '尚未設定 GROQ_API_KEY，自動略過。' : '尚未設定 Workers AI 綁定。' })
+      results.push({ ...base, status: 'skipped', message: m.provider === 'groq' ? '尚未設定 GROQ_API_KEY，自動略過。' : '尚未設定 Workers AI 綁定。' })
       continue
     }
     const started = Date.now()
     try {
       const r = await runBackupModel(c.env, m, sample, 'zh-Hant')
-      results.push({ provider: m.provider, model: m.model, label: m.label, status: 'ok', seconds: Math.round((Date.now() - started) / 100) / 10,
+      results.push({ ...base, status: 'ok', seconds: Math.round((Date.now() - started) / 100) / 10,
         risk_level: r.risk_level, summary: (r.summary ?? '').slice(0, 200) })
     } catch (e) {
-      results.push({ provider: m.provider, model: m.model, label: m.label, status: 'error', seconds: Math.round((Date.now() - started) / 100) / 10,
+      results.push({ ...base, status: 'error', seconds: Math.round((Date.now() - started) / 100) / 10,
         message: e instanceof GeminiError ? `${e.message}（${e.status || '連線'}）` : '回覆無法解讀。' })
     }
   }
   await audit(c.env.DB, c.get('admin'), 'backup_ai_test')
   return c.json({ results })
+})
+
+/**
+ * 備援模型選單的候選名單與即時狀態：Groq 用現有金鑰讀取模型清單比對（不消耗分析額度）；
+ * Workers AI 沒有讀取清單的方法，標示「未確認」，請用「測試備援 AI」確認。
+ */
+guarded.get('/ai/backup-catalog', async (c) => {
+  let groq: Set<string> | null | 'error' = null
+  try { groq = await groqModelIds(c.env) } catch { groq = 'error' }
+  const models = BACKUP_CATALOG.map(m => {
+    let status: 'available' | 'missing' | 'no_key' | 'unknown' | 'unchecked' | 'no_binding'
+    if (m.provider === 'groq') status = groq === null ? 'no_key' : groq === 'error' ? 'unknown' : groq.has(m.model) ? 'available' : 'missing'
+    else status = backupAvailable(c.env, m) ? 'unchecked' : 'no_binding'
+    return { key: m.key, provider: m.provider, provider_label: PROVIDER_LABEL[m.provider], model: m.model, label: m.label, maker: m.maker, status }
+  })
+  return c.json({ models })
 })
 
 /** 列出這把金鑰能用的模型代號（不消耗分析額度），用來設定模型順序 */

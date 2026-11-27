@@ -1,5 +1,6 @@
 /** 系統設定：預設值 + 管理頁可修改的值（存在 D1 app_settings），取代 v0.1 的 config.env */
 import { DEFAULT_MODELS, type ModelConf } from './aimodels'
+import { backupModelsFor, DEFAULT_BACKUP_KEYS } from './backup-ai'
 import { nowIso } from './util'
 
 export interface AppSettings {
@@ -10,6 +11,8 @@ export interface AppSettings {
   gemini_models: ModelConf[]
   /** 整個網站每天最多呼叫幾次 AI（所有模型合計） */
   gemini_daily_limit: number
+  /** Gemini 失敗時依序改用的備援模型代號（provider:model，只能從 BACKUP_CATALOG 選；空陣列＝不用備援） */
+  backup_models: string[]
   cofacts_enabled: boolean
   cofacts_daily_limit: number
   google_daily_limit: number
@@ -29,6 +32,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   research_collection_enabled: true,
   gemini_models: DEFAULT_MODELS,
   gemini_daily_limit: 2000,
+  backup_models: DEFAULT_BACKUP_KEYS,
   cofacts_enabled: true,
   cofacts_daily_limit: 500,
   google_daily_limit: 1000,
@@ -58,6 +62,8 @@ export async function getSettings(db: D1Database): Promise<AppSettings> {
   }
   // 舊設定的錯誤代號（已用「列出可用模型」確認正確名稱）
   s.gemini_models = s.gemini_models.map((m) => (m.id === 'gemini-3-flash' ? { ...m, id: 'gemini-3-flash-preview' } : m))
+  // 已從候選名單移除的模型（例如被平台停用）自動略過
+  s.backup_models = backupModelsFor(s.backup_models).map(m => m.key)
   return s
 }
 

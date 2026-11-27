@@ -5,6 +5,7 @@ import { AdminAiQuota } from '../components/AdminAiQuota'
 import { AdminUsageCalibration } from '../components/AdminUsageCalibration'
 import { AdminAiErrors } from '../components/AdminAiErrors'
 import { BackupAiTest } from '../components/BackupAiTest'
+import { BackupModelPicker } from '../components/BackupModelPicker'
 import { GameQuestions } from '../components/GameQuestions'
 import { opinionTopics, type OpinionTopic } from '../../shared/result-opinion'
 import { buildWorkbook, downloadBlob, type ExportData } from '../excel'
@@ -443,7 +444,7 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
     if (f.research_mode === 'formal' && data.research_mode !== 'formal' && !confirmFormal) return setConfirmFormal(true)
     const body = { research_mode: f.research_mode, research_group_mode: f.research_group_mode, research_collection_enabled: f.research_collection_enabled,
       opinion_deadline: f.opinion_deadline ?? '', opinion_keep_until: f.opinion_keep_until ?? '',
-      gemini_models: parseModels(f.models_text), gemini_daily_limit: Number(f.gemini_daily_limit),
+      gemini_models: parseModels(f.models_text), gemini_daily_limit: Number(f.gemini_daily_limit), backup_models: f.backup_models ?? [],
       cofacts_enabled: Boolean(f.cofacts_enabled), cofacts_daily_limit: Number(f.cofacts_daily_limit),
       google_daily_limit: Number(f.google_daily_limit), virustotal_daily_limit: Number(f.virustotal_daily_limit),
       // 只有改過日期才送出，避免日期過期後存其他設定被擋下
@@ -482,6 +483,7 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
         <button type="button" className="btn-secondary" onClick={listModels}>列出這把金鑰可用的模型代號</button>
         {available && <p className="max-h-40 overflow-y-auto break-words rounded-lg bg-slate-50 p-2 font-mono text-xs">{available.map((m) => m.id).join('、') || '沒有可用模型'}</p>}
         <p className="text-xs text-slate-500">Google 推出新模型時改這裡即可，例如 gemini-3.8-flash。金鑰在 Cloudflare 後台的 GEMINI_API_KEY 設定。</p>
+        <BackupModelPicker call={call} value={f.backup_models ?? []} onChange={(v) => set('backup_models', v)} />
         <label className="block"><span className="label">AI 每日總上限（所有模型合計，次）</span><input className="input" type="number" min={0} value={f.gemini_daily_limit} onChange={(e) => set('gemini_daily_limit', e.target.value)} /></label>
         <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={f.cofacts_enabled} onChange={(e) => set('cofacts_enabled', e.target.checked)} />啟用 Cofacts 查核比對（公開 API，不需要憑證）</label>
         <label className="block"><span className="label">Cofacts 每日上限（次）</span><input className="input" type="number" min={0} value={f.cofacts_daily_limit} onChange={(e) => set('cofacts_daily_limit', e.target.value)} /></label>

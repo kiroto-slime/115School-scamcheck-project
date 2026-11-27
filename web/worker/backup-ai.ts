@@ -1,6 +1,6 @@
 /**
  * 備援 AI：Gemini 連續失敗（用盡失敗上限或額度）時，改用其他 AI 分析「文字」。
- * - 順序（擁有者 2026-11-27 決定）：Workers AI（不需金鑰、資料不出 Cloudflare）→ Groq（需 GROQ_API_KEY）。
+ * - 使用哪些模型、順序由後台「系統設定」選（只能從 BACKUP_CATALOG 選）；預設 Workers AI（不需金鑰、資料不出 Cloudflare）→ Groq（需 GROQ_API_KEY）。
  * - 不使用中國廠牌模型（擁有者決定，避免政治立場疑慮）。
  * - 與 Gemini 共用同一套提示詞、隨機分隔標記與回覆格式；格式不對就當失敗，不捏造結果。
  * - 呼叫端已先遮蔽個資（redactPii）；圖片與影片不送備援。
@@ -8,14 +8,40 @@
 import { type AIResult, aiResultFromJson, buildUserPrompt, GeminiError, parseJsonLoose, type ReplyLang, SCHEMA, systemPrompt } from './gemini'
 
 export type BackupProvider = 'workers_ai' | 'groq'
-export interface BackupModel { provider: BackupProvider; model: string; label: string }
+export interface BackupModel { key: string; provider: BackupProvider; model: string; label: string; maker: string }
 
-export const BACKUP_MODELS: readonly BackupModel[] = [
-  { provider: 'workers_ai', model: '@cf/nvidia/nemotron-3-120b-a12b', label: 'Nemotron 3 Super' },
-  { provider: 'workers_ai', model: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma 4 26B' },
-  { provider: 'groq', model: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
-  { provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
+const entry = (provider: BackupProvider, model: string, label: string, maker: string): BackupModel => ({ key: `${provider}:${model}`, provider, model, label, maker })
+
+/**
+ * 後台可選的備援候選名單（已確認：非中國廠牌、支援固定 JSON 格式、2026-11-27 官方頁面未標示停用）。
+ * 新增候選前要先確認上面三點；已停用的模型直接從這裡刪掉，後台存的舊代號會自動被忽略。
+ */
+export const BACKUP_CATALOG: readonly BackupModel[] = [
+  entry('workers_ai', '@cf/openai/gpt-oss-120b', 'GPT-OSS 120B', 'OpenAI'),
+  entry('workers_ai', '@cf/google/gemma-4-26b-a4b-it', 'Gemma 4 26B', 'Google'),
+  entry('workers_ai', '@cf/meta/llama-4-scout-17b-16e-instruct', 'Llama 4 Scout 17B', 'Meta'),
+  entry('workers_ai', '@cf/openai/gpt-oss-20b', 'GPT-OSS 20B', 'OpenAI'),
+  entry('groq', 'openai/gpt-oss-120b', 'GPT-OSS 120B', 'OpenAI'),
+  entry('groq', 'openai/gpt-oss-20b', 'GPT-OSS 20B', 'OpenAI'),
 ]
+export const BACKUP_KEYS = BACKUP_CATALOG.map(m => m.key) as [string, ...string[]]
+
+/** 預設順序（擁有者 2026-11-27 決定）：Workers AI 先，Groq 後 */
+export const DEFAULT_BACKUP_KEYS: string[] = [
+  'workers_ai:@cf/openai/gpt-oss-120b', 'workers_ai:@cf/google/gemma-4-26b-a4b-it', 'workers_ai:@cf/meta/llama-4-scout-17b-16e-instruct',
+  'groq:openai/gpt-oss-120b', 'groq:openai/gpt-oss-20b',
+]
+
+/** 把後台存的代號轉成模型（名單外、重複或格式錯的忽略） */
+export function backupModelsFor(keys: unknown): BackupModel[] {
+  if (!Array.isArray(keys)) return []
+  const out: BackupModel[] = []
+  for (const k of keys) {
+    const m = BACKUP_CATALOG.find(x => x.key === k)
+    if (m && !out.includes(m)) out.push(m)
+  }
+  return out
+}
 
 export const PROVIDER_LABEL: Record<BackupProvider, string> = { workers_ai: 'Cloudflare Workers AI', groq: 'Groq' }
 const TIMEOUT_MS = 60_000
@@ -37,15 +63,28 @@ function withTimeout<T>(p: Promise<T>): Promise<T> {
   ])
 }
 
-/** 把各家回覆統一取出 JSON 內容 */
+/** 把各家回覆統一取出 JSON 內容：response（字串或物件）、choices[].message.content、Responses 格式 output[] 的 output_text */
 function extractJson(out: unknown): Record<string, unknown> {
-  const o = out as { response?: unknown; choices?: { message?: { content?: unknown } }[] } | null
-  const body = o?.response ?? o?.choices?.[0]?.message?.content ?? out
+  const o = out as { response?: unknown; choices?: { message?: { content?: unknown } }[]; output?: { type?: string; content?: { type?: string; text?: unknown }[] }[] } | null
+  const fromOutput = Array.isArray(o?.output)
+    ? o.output.filter(x => x?.type === 'message').flatMap(x => x.content ?? []).filter(c => c?.type === 'output_text').map(c => c.text).find(t => typeof t === 'string')
+    : undefined
+  const body = o?.response ?? o?.choices?.[0]?.message?.content ?? fromOutput ?? out
   if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>
   if (typeof body === 'string') {
     try { return parseJsonLoose(body) } catch { /* 下方統一處理 */ }
   }
   throw new GeminiError('備援 AI 回覆格式無法解讀。')
+}
+
+/** 即時讀取 Groq 目前提供的模型代號（後台選單用）；沒有金鑰回 null，讀取失敗丟錯 */
+export async function groqModelIds(env: Env, fetcher: typeof fetch = (i, init) => fetch(i, init)): Promise<Set<string> | null> {
+  const key = env.GROQ_API_KEY?.trim()
+  if (!key) return null
+  const res = await fetcher('https://api.groq.com/openai/v1/models', { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10_000) })
+  if (!res.ok) throw new Error(`Groq ${res.status}`)
+  const data = (await res.json()) as { data?: { id?: unknown }[] }
+  return new Set((data.data ?? []).map(m => m?.id).filter((id): id is string => typeof id === 'string'))
 }
 
 /** 用一個備援模型分析文字；失敗時丟出 GeminiError（狀態碼供錯誤紀錄分類） */
@@ -56,7 +95,7 @@ export async function runBackupModel(env: Env, m: BackupModel, text: string, lan
     const ai = aiOf(env)
     if (!ai) throw new GeminiError('尚未設定 Workers AI。', 0)
     try {
-      out = await withTimeout(ai.run(m.model, { messages, response_format: { type: 'json_schema', json_schema: SCHEMA }, max_tokens: 2048, temperature: 0.2 }))
+      out = await withTimeout(ai.run(m.model, { messages, response_format: { type: 'json_schema', json_schema: SCHEMA }, max_tokens: 4096, temperature: 0.2 }))
     } catch (e) {
       if (e instanceof GeminiError) throw e
       // Workers AI 的錯誤訊息可能含內部細節，只依代碼分類，不轉給使用者
@@ -75,7 +114,7 @@ export async function runBackupModel(env: Env, m: BackupModel, text: string, lan
       res = await fetcher(GROQ_URL, {
         method: 'POST', signal: AbortSignal.timeout(TIMEOUT_MS),
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: m.model, messages, response_format: format, temperature: 0.2, max_completion_tokens: 2048 }),
+        body: JSON.stringify({ model: m.model, messages, response_format: format, temperature: 0.2, max_completion_tokens: 4096 }),
       })
     } catch (e) {
       const timeout = e instanceof DOMException && e.name === 'TimeoutError'

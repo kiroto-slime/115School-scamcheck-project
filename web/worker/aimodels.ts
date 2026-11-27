@@ -5,7 +5,7 @@
  * - Google 明確指出指定模型不存在或不支援這個 API 時，自動模式今天先跳過該模型。
  */
 import { AIMedia, AIResult, Gemini, GeminiError, type ReplyLang } from './gemini'
-import { BACKUP_MODELS, backupAvailable, PROVIDER_LABEL, runBackupModel } from './backup-ai'
+import { backupAvailable, backupModelsFor, PROVIDER_LABEL, runBackupModel } from './backup-ai'
 import type { AppSettings } from './settings'
 import { publicQuota } from './quota-sync'
 import { googleDay, takeDailyQuota } from './util'
@@ -210,7 +210,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
   // 備援只分析文字；Gemini 成功或有圖片、影片時直接回傳
   if (gemini.status === 'ok' || media.length > 0) return gemini
   const day = googleDay()
-  for (const b of BACKUP_MODELS) {
+  for (const b of backupModelsFor(s.backup_models)) {
     if (!backupAvailable(env, b)) continue
     try {
       const r = await runBackupModel(env, b, text, lang, fetcher)

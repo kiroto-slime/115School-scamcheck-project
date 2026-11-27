@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Alert, Section, Spinner } from './ui'
 
 type Call = <T>(path: string, init?: RequestInit) => Promise<T | null>
-type Row = { provider: string; model: string; label: string; status: 'ok' | 'error' | 'skipped'; seconds?: number; risk_level?: string | null; summary?: string; message?: string }
+type Row = { key?: string; provider: string; provider_label?: string; enabled?: boolean; model: string; label: string; status: 'ok' | 'error' | 'skipped'; seconds?: number; risk_level?: string | null; summary?: string; message?: string }
 
 /** 後台：實際呼叫每個備援 AI 一次，確認 Gemini 失敗時的備援能用（正式站才連得到 Workers AI） */
 export function BackupAiTest({ call }: { call: Call }) {
@@ -21,11 +21,11 @@ export function BackupAiTest({ call }: { call: Call }) {
   }
 
   return <Section title="備援 AI 測試">
-    <p className="text-sm">Gemini 連續失敗時，網站會依序改用 Workers AI（Nemotron 3 Super、Gemma 4 26B）與 Groq（GPT-OSS 120B、Llama 3.3 70B）分析文字。按下後會用一則假的詐騙訊息實際呼叫每個模型一次，確認它們能用、判斷是否合理。Workers AI 只在正式站才連得到。</p>
-    {busy ? <Spinner label="逐一測試中（最多約 4 分鐘）…" /> : <button type="button" className="btn-secondary" onClick={() => void run()}>測試備援 AI</button>}
+    <p className="text-sm">Gemini 連續失敗時，網站會依「系統設定」選的順序改用 Workers AI 或 Groq 分析文字。按下後會用一則假的詐騙訊息實際呼叫候選名單裡的每個模型一次（包含沒啟用的，方便挑選），確認它們能用、判斷是否合理。Workers AI 只在正式站才連得到。</p>
+    {busy ? <Spinner label="逐一測試中（最多約 6 分鐘）…" /> : <button type="button" className="btn-secondary" onClick={() => void run()}>測試備援 AI</button>}
     {error && <Alert kind="error">{error}</Alert>}
-    {rows && <ul className="divide-y text-sm">{rows.map(row => <li key={row.model} className="space-y-1 py-2">
-      <p className="break-all font-medium">{row.label}<span className="block text-xs font-normal text-slate-600">{row.model}</span></p>
+    {rows && <ul className="divide-y text-sm">{rows.map(row => <li key={row.key ?? row.model} className="space-y-1 py-2">
+      <p className="break-all font-medium">{row.provider_label ? `${row.provider_label} · ` : ''}{row.label}{row.enabled === false && <span className="ml-1 text-xs font-normal text-slate-500">（未啟用）</span>}<span className="block text-xs font-normal text-slate-600">{row.model}</span></p>
       {row.status === 'ok' && <>
         <p className="text-emerald-700">成功・等級 {row.risk_level ?? '未提供'}・{row.seconds} 秒</p>
         {row.summary && <p className="break-words text-slate-700">{row.summary}</p>}
