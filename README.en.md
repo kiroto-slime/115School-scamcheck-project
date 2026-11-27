@@ -18,7 +18,7 @@ Students in the Department of Data Processing at Sanchong Commercial and Industr
 |---|---|
 | Message checks | Looks for ten categories of warning signs, finds related fact-checks through the public Cofacts API, and offers Gemini explanations when a key is configured. Administrators can turn off Cofacts. |
 | URL checks | Checks domains against Taiwan's National Police Agency 165 anti-fraud lists, covering roughly 110,000 domains. Administrators can update the lists. Google Safe Browsing and VirusTotal checks are optional. |
-| Gemini analysis | Users can choose a model or let the site switch to the next available free model when a quota runs out. |
+| Gemini analysis | Users can choose a model or let the site switch to the next available free model when a quota runs out. If Gemini is unavailable, backup models on Cloudflare Workers AI or Groq analyze the text. Images and videos are not sent to them. Administrators choose the backup models and their order. |
 | Screenshots and short videos | Gemini can analyze images and videos, including audio. Users can also enter text manually when Gemini is unavailable. |
 | Research quiz | Participants give consent and receive an anonymous study ID. Between a pre-test and a post-test, one group receives general information and the other sees explanations from ScamCheck. |
 | Privacy | Without research consent, the service keeps only the analysis result and deletes it after 30 days by default. With consent, it can retain redacted text and URLs until the retention deadline. Participants can withdraw consent and delete their research data. Personal check history stays in the user's browser. |
@@ -59,6 +59,7 @@ Pushing to the GitHub `main` branch starts the Cloudflare deployment. The change
 | [National Police Agency 165 list of suspected scam sites with suspended DNS resolution](https://data.gov.tw/dataset/176455) | Checks submitted URLs. A processed snapshot is included at `web/snapshot/tw165.json.gz`. | Open Government Data License, version 1.0 |
 | [National Police Agency 165 list of fraudulent investment and gambling sites](https://data.gov.tw/dataset/160055) | Checks submitted URLs. | Open Government Data License, version 1.0 |
 | Google Gemini, Google Safe Browsing, Google Fact Check Tools and VirusTotal | Optional external services. Site operators supply their own API keys. | Each provider's terms apply. |
+| Cloudflare Workers AI and Groq | Backup AI when Gemini fails. Workers AI uses a Cloudflare binding and needs no key. Groq is optional and needs the operator's own `GROQ_API_KEY`. | Each provider's terms apply. |
 
 ## Acknowledgments
 

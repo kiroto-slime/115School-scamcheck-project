@@ -17,7 +17,7 @@
 |---|---|
 | 文字查核 | 10 類規則特徵 + Cofacts 比對（公開 API，可在管理頁關閉）+ Gemini 解釋（設定金鑰後） |
 | 網址安全檢查 | 比對警政署 165 涉詐網站名單（約 11 萬個網域，管理頁可更新）；可選 Google 安全瀏覽、VirusTotal |
-| AI 分析 | Google Gemini，多個免費模型輪替（額度用完自動換下一個，也可自選模型） |
+| AI 分析 | Google Gemini，多個免費模型輪替（額度用完自動換下一個，也可自選模型）；Gemini 無法使用時，改用 Cloudflare Workers AI 或 Groq 的備援模型分析文字（圖片、影片不送），模型與順序在管理頁設定 |
 | 圖片、短影片 | 交給 Gemini 讀圖、看影片（含聲音）；沒有 AI 時可手動輸入文字 |
 | 研究測驗 | 同意 → 前測 → 輔助（A 一般資訊／B 網站解釋）→ 後測，匿名研究編號 |
 | 隱私 | 未同意研究時，系統只保留分析結果，預設 30 天後刪除。同意研究時，系統可在保存期限內留存經遮蔽的文字與網址。可撤回同意並刪除研究資料。個人查核紀錄只存在使用者瀏覽器。 |
@@ -58,6 +58,7 @@ npm run test:e2e   # iPhone / Pixel / iPad / 桌面 瀏覽器測試
 | [警政署 165 反詐騙諮詢專線：遭停止解析涉詐網站](https://data.gov.tw/dataset/176455) | 涉詐網址比對（`web/snapshot/tw165.json.gz` 為整理後的備份） | 政府資料開放授權條款－第 1 版 |
 | [警政署 165 反詐騙諮詢專線：假投資（博弈）網站](https://data.gov.tw/dataset/160055) | 涉詐網址比對 | 政府資料開放授權條款－第 1 版 |
 | Google Gemini、Google 安全瀏覽、Google Fact Check Tools、VirusTotal | 選用的外部分析服務（需自行申請金鑰） | 依各服務條款 |
+| Cloudflare Workers AI、Groq | Gemini 失敗時的備援 AI（Workers AI 使用 Cloudflare 綁定，不需金鑰；Groq 需自行申請金鑰 `GROQ_API_KEY`，選填） | 依各服務條款 |
 
 ## 致謝
 
