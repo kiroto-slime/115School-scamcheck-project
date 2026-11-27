@@ -126,6 +126,9 @@ export async function modelStates(db: D1Database, models: ModelConf[], now = new
 export type ErrorCategory = 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key' | 'daily_quota'
   | 'minute_quota' | 'busy' | 'timeout' | 'network' | 'bad_response' | 'other'
 const errKey = (model: string, category: ErrorCategory, status: number) => `gemini_err:${model}|${category}|${status}`
+/** 管理員警告：地區錯誤重試超過 2 次後才成功的查核筆數 */
+const REGION_WARN_KEY = 'gemini_warn:region_retry'
+const REGION_RETRY_MS = 1000
 
 export function errorCategory(e: unknown): { category: ErrorCategory; status: number } {
   if (!(e instanceof GeminiError)) return { category: 'bad_response', status: 0 }
@@ -147,12 +150,13 @@ async function recordModelError(db: D1Database, day: string, model: string, e: u
 /** 後台用：最近 7 個配額日（美國太平洋時間）每個模型的錯誤類型與次數，新的在前 */
 export async function siteErrors(db: D1Database, now = new Date()) {
   const days = Array.from({ length: 7 }, (_, i) => googleDay(new Date(now.getTime() - i * 86_400_000)))
-  const { results } = await db.prepare(`SELECT day, name, count FROM usage_counters WHERE name GLOB 'gemini_err:*'
-      AND day IN (${days.map(() => '?').join(',')})`).bind(...days).all<{ day: string; name: string; count: number }>()
+  const { results } = await db.prepare(`SELECT day, name, count FROM usage_counters WHERE (name GLOB 'gemini_err:*' OR name = ?)
+      AND day IN (${days.map(() => '?').join(',')})`).bind(REGION_WARN_KEY, ...days).all<{ day: string; name: string; count: number }>()
   return {
     days: days.map(day => ({
       day,
-      rows: results.filter(r => r.day === day).map(r => {
+      warnings: { region_retry: results.find(r => r.day === day && r.name === REGION_WARN_KEY)?.count ?? 0 },
+      rows: results.filter(r => r.day === day && r.name !== REGION_WARN_KEY).map(r => {
         const [model, category, status] = r.name.slice('gemini_err:'.length).split('|')
         return { model, category: category as ErrorCategory, status: Number(status), count: r.count }
       }).sort((a, b) => b.count - a.count || a.model.localeCompare(b.model)),
@@ -214,7 +218,12 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
   const exhausted = new Set(snapshot.models.filter(m => m.daily_limit_reached).map(m => m.id))
   const skipped: string[] = []
   let lastFailure: AIResult | undefined
-  for (const m of models) {
+  // 「地區不支援」多半是 Google 判錯 Cloudflare 對外連線的 IP：同一模型等 1 秒重試 1 次，仍失敗才換下一個模型。
+  // 只有 Google 明確回了這個錯誤才重試；Gemini 還在回應時照常等待（最多 3 分鐘），不會被當成錯誤。
+  const regionRetried = new Set<string>()
+  let regionFailures = 0
+  for (let i = 0; i < models.length; i++) {
+    const m = models[i]
     const st = states.find((x) => x.id === m.id)!
     if (exhausted.has(m.id) || (st.unavailable && m.id !== chosen?.id) || st.remaining <= 0 || (needMedia && !m.media)) continue
     // 先檢查每分鐘，再扣每日次數
@@ -264,10 +273,23 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
         skipped.push(`${modelLabel(m.id)} 不支援這次查核的格式`)
         continue
       }
+      if (e.reason === 'region') {
+        regionFailures++
+        if (!regionRetried.has(m.id)) {
+          regionRetried.add(m.id)
+          await new Promise((r) => setTimeout(r, REGION_RETRY_MS))
+          i-- // 同一模型再試一次（重新扣每分鐘與每日次數，因為這是新的請求）
+          continue
+        }
+        skipped.push(`${modelLabel(m.id)} 連線地區暫時被 Google 拒絕`)
+        continue
+      }
       return lastFailure
     }
     await adjustCount(env.DB, day, usedKey(m.id), gemini.extraRequests)
     await recordModelAvailability(env.DB, day, m.id, attempt, true)
+    // 累計地區錯誤超過 2 次才成功：記給管理員看的警告（只記次數，不影響使用者）
+    if (regionFailures > 2) await adjustCount(env.DB, day, REGION_WARN_KEY, 1)
     return { ...out, sent_media: sent, fallback_note: skipped.length ? `已自動改用 ${modelLabel(m.id)}（${skipped.join('；')}）` : null }
   }
   if (lastFailure) return lastFailure

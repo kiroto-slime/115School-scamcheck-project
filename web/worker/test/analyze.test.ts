@@ -181,8 +181,9 @@ describe('Gemini', () => {
     mockFetch((url, init) => {
       expect(url).toMatch(/\/interactions$/)
       attempts.push(JSON.parse(String(init?.body)).model)
+      // 用不會自動重試的拒絕（地區錯誤現在會自動重試，見 aimodels 測試）
       return attempts.length === 1
-        ? Response.json({ error: { message: 'User location is not supported for the API use.' } }, { status: 400 })
+        ? Response.json({ error: { message: 'The billing account for the project is disabled.' } }, { status: 403 })
         : geminiReply(GOOD)
     })
     const submit = (text: string) => call('/api/analyze/text', {
@@ -195,7 +196,7 @@ describe('Gemini', () => {
     expect(saved.status).toBe(200)
     expect(saved.json).toMatchObject({
       analysis_status: 'completed_with_source_error', risk_tags: expect.arrayContaining(['financial_request']),
-      consent_research: false, ai: { status: 'error', model, summary: expect.stringContaining('所在地區') },
+      consent_research: false, ai: { status: 'error', model, summary: expect.stringContaining('權限') },
     })
 
     const second = await submit('請確認這則包裹通知。')

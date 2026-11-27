@@ -98,9 +98,8 @@ describe('模型輪替', () => {
   const two = S([{ id: 'first', daily: 20, rpm: 10, media: true }, { id: 'second', daily: 20, rpm: 10, media: true }])
   const refused = (status: number, message: string) => Response.json({ error: { message } }, { status })
 
+  // 「地區不支援」改為重試並換模型（2026-11-27 擁有者決定），由下方「地區錯誤重試」測試涵蓋
   it.each([
-    [400, 'User location is not supported for the API use.', '所在地區'],
-    [400, 'Model first is not supported for the Interactions API in this region.', '所在地區'],
     [404, 'Model first is not available for the Interactions API for this project.', '資源'],
     [404, 'File files/private-example was not found.', '資源'],
     [404, 'models/someone-else is not found', '資源'],
@@ -453,5 +452,69 @@ describe('AI 錯誤紀錄（只存分類）', () => {
     await purgeOldCounters(env.DB)
     const days = (await env.DB.prepare("SELECT day FROM usage_counters WHERE name = 'gemini_err:x|busy|503'").all<{ day: string }>()).results.map(r => r.day)
     expect(days).toEqual([recent])
+  })
+})
+
+describe('地區錯誤重試', () => {
+  const region = () => new Response(JSON.stringify({ error: { code: 400, message: 'User location is not supported for the API use.', status: 'FAILED_PRECONDITION' } }), { status: 400 })
+
+  it('同一模型重試 1 次就成功：使用者拿到結果，不產生管理員警告；兩次都算額度', async () => {
+    const { siteErrors } = await import('../aimodels')
+    let calls = 0
+    mockModels(() => ++calls === 1 ? region() : ok())
+    const s = S([{ id: 'reg-1', daily: 5, rpm: 5, media: true }])
+    const r = await analyzeWithFallback(E, s, '你好', [])
+    expect(r).toMatchObject({ status: 'ok', model: 'reg-1' })
+    expect(calls).toBe(2)
+    expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(3)
+    const today = (await siteErrors(env.DB)).days[0]
+    expect(today.rows).toContainEqual({ model: 'reg-1', category: 'region', status: 400, count: 1 })
+    expect(today.warnings.region_retry).toBe(0)
+  })
+
+  it('同一模型重試仍失敗就換下一個模型；累計失敗超過 2 次才成功時，記一筆管理員警告', async () => {
+    const { siteErrors } = await import('../aimodels')
+    const used = mockModels((m) => m === 'ok-3' ? ok() : region())
+    const s = S([{ id: 'reg-a', daily: 5, rpm: 5, media: true }, { id: 'reg-b', daily: 5, rpm: 5, media: true }, { id: 'ok-3', daily: 5, rpm: 5, media: true }])
+    const r = await analyzeWithFallback(E, s, '你好', [])
+    expect(r).toMatchObject({ status: 'ok', model: 'ok-3' })
+    expect(used).toEqual(['reg-a', 'reg-a', 'reg-b', 'reg-b', 'ok-3'])
+    expect((await siteErrors(env.DB)).days[0].warnings.region_retry).toBe(1)
+  })
+
+  it.each([
+    'User location is not supported for the API use.',
+    'Model first is not supported for the Interactions API in this region.',
+  ])('全部模型都地區錯誤：每個模型最多 2 次後顯示錯誤，且不把模型標成不可用（%s）', async (message) => {
+    const used = mockModels(() => new Response(JSON.stringify({ error: { code: 400, message } }), { status: 400 }))
+    const s = S([{ id: 'r-1', daily: 5, rpm: 5, media: true }, { id: 'r-2', daily: 5, rpm: 5, media: true }])
+    const r = await analyzeWithFallback(E, s, '你好', [])
+    expect(r.status).toBe('error')
+    expect(r.summary).toContain('所在地區')
+    expect(used).toEqual(['r-1', 'r-1', 'r-2', 'r-2'])
+    expect((await modelStates(env.DB, s.gemini_models)).every(m => !m.unavailable)).toBe(true)
+  })
+
+  it('Gemini 回應很慢但正常完成：照常等待，不當成錯誤、不重試', async () => {
+    let calls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      calls++
+      await new Promise(r => setTimeout(r, 1200))
+      return ok()
+    })
+    const s = S([{ id: 'slow-1', daily: 5, rpm: 5, media: true }])
+    const r = await analyzeWithFallback(E, s, '你好', [])
+    expect(r).toMatchObject({ status: 'ok', model: 'slow-1' })
+    expect(calls).toBe(1)
+    expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(4)
+  })
+
+  it('其他 400 錯誤（例如內容被擋）不會被當成地區錯誤而重試', async () => {
+    const used = mockModels((m) => m === 'bad-1'
+      ? new Response(JSON.stringify({ error: { code: 400, message: 'Request contains an invalid argument.' } }), { status: 400 })
+      : ok())
+    const s = S([{ id: 'bad-1', daily: 5, rpm: 5, media: true }, { id: 'ok-2', daily: 5, rpm: 5, media: true }])
+    await analyzeWithFallback(E, s, '你好', [])
+    expect(used.filter(m => m === 'bad-1')).toHaveLength(1)
   })
 })

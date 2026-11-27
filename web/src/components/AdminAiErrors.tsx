@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Section, Spinner } from './ui'
+import { Alert, Section, Spinner } from './ui'
 
 type Call = <T>(path: string, init?: RequestInit) => Promise<T | null>
 type Row = { model: string; category: string; status: number; count: number }
-type Report = { days: { day: string; rows: Row[] }[] }
+type Report = { days: { day: string; rows: Row[]; warnings?: { region_retry?: number } }[] }
 
 // 只顯示分類，不含任何訊息內容
 const LABELS: Record<string, string> = {
   model_unavailable: '模型不存在或不支援此 API（會讓該模型今天被跳過）',
   unsupported_input: '這個模型不支援這次的格式（只影響該筆）',
-  region: 'Google 不支援伺服器所在地區',
+  region: 'Google 拒絕連線地區（網站會自動重試並換模型）',
   api_key: 'Gemini 金鑰無效',
   daily_quota: 'Google 回報今日額度已用完',
   minute_quota: '這一分鐘太多請求（429，不算額度）',
@@ -41,8 +41,16 @@ export function AdminAiErrors({ call }: { call: Call }) {
     <p className="text-sm">只記錄日期、模型、錯誤類型、狀態碼和次數，不保存任何查核內容或 Google 的錯誤原文；保留 90 天。日期為美國太平洋時間的配額日。</p>
     {loading ? <Spinner label="載入 AI 錯誤紀錄…" /> : !report ? <p className="text-sm">無法載入 AI 錯誤紀錄，請重新整理頁面。</p> :
       <div className="space-y-3">
+        {(() => {
+          // 只給管理員看的提醒：使用者已拿到正常結果，不影響功能
+          const total = report.days.reduce((sum, d) => sum + (d.warnings?.region_retry ?? 0), 0)
+          return total > 0 && <Alert kind="warn">
+            最近 7 天有 {total} 筆查核，因 Google 拒絕連線地區而重試超過 2 次後才成功。使用者已拿到正常結果；若經常發生，建議到 Google AI 開發者論壇回報地區判斷問題。
+          </Alert>
+        })()}
         {report.days.map(d => <div key={d.day}>
           <p className="font-medium">{d.day}</p>
+          {(d.warnings?.region_retry ?? 0) > 0 && <p className="text-sm text-amber-700">⚠ {d.warnings!.region_retry} 筆查核重試超過 2 次後才成功</p>}
           {d.rows.length === 0 ? <p className="text-sm text-slate-600">這天沒有 AI 錯誤。</p> :
             <ul className="divide-y text-sm">{d.rows.map(r => <li key={`${r.model}|${r.category}|${r.status}`} className="grid gap-1 py-1 sm:grid-cols-2">
               <span className="min-w-0 break-all font-medium">{r.model}</span>
