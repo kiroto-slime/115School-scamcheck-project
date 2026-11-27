@@ -148,7 +148,7 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
   const sheets: Sheet[] = [
     // 查核時間已是格式化文字，不能列入 dateColumns（否則不會經過 safeCell）
     { name: '查核摘要', dateColumns: [],
-      headers: ['查核時間（臺灣時間）', '訊息內容', '可疑網址', '多嚴重', 'Gemini 的判斷', '有哪些問題', '建議怎麼處理', '各來源查核結果', '資料來源'],
+      headers: ['查核時間（臺灣時間）', '訊息內容', '可疑網址', '多嚴重', 'AI 的判斷', '有哪些問題', '建議怎麼處理', '各來源查核結果', '資料來源'],
       rows: analyses.map(readableAnalysis) },
     { name: '統計總覽', dateColumns: [], headers: ['指標', '數值'], rows: summary },
     { name: '分析紀錄', dateColumns: [3],
@@ -173,8 +173,8 @@ export async function exportData(db: D1Database, demo: boolean): Promise<{ sheet
       rows: surveys.map((s) => [tag, s.survey_id, zh(s.respondent_role, ROLE_ZH), zh(s.product, PRODUCT_ZH), s.perceived_value, zh(s.most_needed_feature, NEED_ZH), yn(s.teacher_would_use), yn(s.verbal_interest),
         yn(s.trial_intent), yn(s.payment_intent), s.acceptable_price_range === 'free_only' ? '只接受免費' : s.acceptable_price_range, s.created_at]) },
     { name: '匯出說明', dateColumns: [], headers: ['項目', '說明'], rows: [
-      ['閱讀順序', '先看查核摘要的訊息內容、可疑網址、多嚴重、Gemini 的判斷、有哪些問題、建議怎麼處理，再看查核來源與統計總覽；編號、版本與原始代碼集中在最後一頁「技術欄位」。'],
-      ['訊息內容', '僅在使用者同意保存時才有，已遮蔽常見個資；舊紀錄或未同意者顯示「未保存內容」，不還原、不編造。Gemini 的判斷為當次已保存結果，不再次呼叫 AI。'],
+      ['閱讀順序', '先看查核摘要的訊息內容、可疑網址、多嚴重、AI 的判斷、有哪些問題、建議怎麼處理，再看查核來源與統計總覽；編號、版本與原始代碼集中在最後一頁「技術欄位」。'],
+      ['訊息內容', '僅在使用者同意保存時才有，已遮蔽常見個資；舊紀錄或未同意者顯示「未保存內容」，不還原、不編造。AI 的判斷為當次已保存結果，不再次呼叫 AI；開頭標示回答的 AI（Gemini 失敗時可能是 Workers AI 或 Groq 備援）。'],
       ['風險與正確率', '規則風險指數不是詐騙機率或司法認定。AI 判斷另外列出；查核紀錄數不能當成前後測有效樣本數或準確率。'],
       ['資料分類', '使用者查核與前後測模式分開；DEMO 舊紀錄可能包含真實投稿，來源待確認，未自動重標或搬移。'],
       ['個資與授權', '摘要及原因已再次遮蔽常見手機、Email、身分證、長數字帳號及連結；人名、地址、特殊情節仍可能殘留，公開或教學使用前須人工審查與確認授權。'],

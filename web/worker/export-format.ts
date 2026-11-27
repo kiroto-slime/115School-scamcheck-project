@@ -16,6 +16,8 @@ export const stringsOf = (value: unknown): string[] => Array.isArray(value) ? va
 export const FEATURE_ZH: Record<string, string> = Object.fromEntries(RULES.map((r) => [r.feature_id, r.label]))
 export const MEDIA_ZH: Record<string, string> = { text: '文字訊息', image: '圖片截圖', video: '短影片' }
 export const PROVIDER_ZH: Record<string, string> = { cofacts: 'Cofacts 真的假的', tw165: '警政署 165 名單', safe_browsing: 'Google 網址安全', virustotal: 'VirusTotal 網域報告', google_factcheck: 'Google 事實查核', gemini: 'Gemini AI' }
+/** 匯出時標示實際回答的 AI */
+const AI_EXPORT_NAME: Record<string, string> = { gemini: 'Gemini', workers_ai: 'Workers AI（備援）', groq: 'Groq（備援）' }
 export const STATUS_ZH: Record<string, string> = {
   found: '找到相關資料（需閱讀內容）', not_found: '查無資料（不代表安全）', listed: '在涉詐網站名單上', not_listed: '未列入名單（不代表安全）',
   ok: '查詢完成', clean: '未發現已知威脅（不代表安全）', safe: '未發現已知威脅（不代表安全）', error: '查詢失敗', rate_limited: '額度已用完或查詢過於頻繁',
@@ -73,7 +75,7 @@ export function finalLevelOf(riskLevel: string, resultJson: string | null | unde
   const cofacts = objectOf(result.cofacts)
   return finalRisk({
     risk_level: riskLevel,
-    ai: { status: String(ai.status ?? ''), risk_level: typeof ai.risk_level === 'string' ? ai.risk_level : null },
+    ai: { status: String(ai.status ?? ''), risk_level: typeof ai.risk_level === 'string' ? ai.risk_level : null, provider: typeof ai.provider === 'string' ? ai.provider : null },
     cofacts: { matches: Array.isArray(cofacts.matches) ? cofacts.matches.map(objectOf).map((m) => ({ reply_type: typeof m.reply_type === 'string' ? m.reply_type : null })) : [] },
     url_checks: { tw165: { status: String(objectOf(u.tw165).status ?? '') }, safe_browsing: { status: String(objectOf(u.safe_browsing).status ?? '') }, virustotal: { status: String(objectOf(u.virustotal).status ?? '') } },
   }).level
@@ -95,7 +97,7 @@ export function readableAnalysis(a: ExportAnalysis) {
   }
   const reasons = mainReasons(reasonInput)
   // 綜合等級：與結果頁結論卡相同（各來源取最高）
-  const final = finalRisk({ ...reasonInput, risk_level: a.risk_level, ai: { status: String(ai.status ?? ''), risk_level: typeof ai.risk_level === 'string' ? ai.risk_level : null } })
+  const final = finalRisk({ ...reasonInput, risk_level: a.risk_level, ai: { status: String(ai.status ?? ''), risk_level: typeof ai.risk_level === 'string' ? ai.risk_level : null, provider: typeof ai.provider === 'string' ? ai.provider : null } })
   const basis = stringsOf(result.basis)
   const issues = lines([
     ...reasons.map((s) => `結果頁主要原因：${s}`),
@@ -116,7 +118,7 @@ export function readableAnalysis(a: ExportAnalysis) {
   // 可疑網址：路徑可能夾帶個資，匯出時再遮一次（縱深防禦）
   const urls = stringsOf(parseJson<unknown>(a.content_urls_json, [])).map((s) => redactPii(s).replace(/\0/g, '')).join('\n')
   const gemini = aiOk
-    ? `${exportText(ai.risk_level) || '未提供等級'}：${summary || '未保存摘要'}`
+    ? `${AI_EXPORT_NAME[String(ai.provider ?? 'gemini')] ?? 'Gemini'}｜${exportText(ai.risk_level) || '未提供等級'}：${summary || '未保存摘要'}`
     : zh(ai.status, STATUS_ZH, '未使用')
   return [
     twTime(a.created_at),

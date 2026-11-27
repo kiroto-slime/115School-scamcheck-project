@@ -27,13 +27,16 @@ export function mainReasons(d: ConclusionData): string[] {
   return out.slice(0, 5)
 }
 
+/** 實際回答的 AI 簡稱（Gemini 失敗時可能改用備援 AI） */
+const AI_NAME: Record<string, string> = { gemini: 'Gemini', workers_ai: 'Workers AI', groq: 'Groq' }
+
 export type FinalLevel = '高' | '中' | '低' | '資訊不足'
 const RANK: Record<string, number> = { 低: 1, 中: 2, 高: 3 }
 const LEVELS: FinalLevel[] = ['資訊不足', '低', '中', '高']
 
 export interface FinalRiskInput extends ConclusionData {
   risk_level: string
-  ai?: { status?: string; risk_level?: string | null }
+  ai?: { status?: string; risk_level?: string | null; provider?: string | null }
 }
 
 export interface FinalRisk {
@@ -52,7 +55,7 @@ export interface FinalRisk {
  */
 export function finalRisk(d: FinalRiskInput): FinalRisk {
   const parts: { name: string; level: string }[] = [{ name: '關鍵字規則', level: d.risk_level }]
-  if (d.ai?.status === 'ok' && d.ai.risk_level) parts.push({ name: 'Gemini', level: d.ai.risk_level })
+  if (d.ai?.status === 'ok' && d.ai.risk_level) parts.push({ name: AI_NAME[d.ai.provider ?? 'gemini'] ?? 'Gemini', level: d.ai.risk_level })
   const u = d.url_checks
   if (u?.tw165?.status === 'listed') parts.push({ name: '165 涉詐網站名單', level: '高' })
   if (u?.safe_browsing?.status === 'found') parts.push({ name: 'Google 安全瀏覽', level: '高' })

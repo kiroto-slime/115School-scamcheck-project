@@ -8,6 +8,8 @@ const migrations = (env as unknown as { TEST_MIGRATIONS: Migrations }).TEST_MIGR
 beforeEach(async () => {
   await reset()
   await applyD1Migrations(env.DB, migrations)
+  // 測試不連 Cloudflare 遠端：預設沒有 Workers AI 綁定（備援測試會自行放入模擬物件）
+  Object.defineProperty(env, 'AI', { value: undefined, configurable: true, writable: true })
   // 測試不連外網：Cofacts 預設回「查無資料」，其他外部請求一律失敗（個別測試可再自行 mock）
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url

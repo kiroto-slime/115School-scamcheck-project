@@ -4,7 +4,8 @@
  * - Google 回報「每日額度用完」→ 該模型今天標記為用完；「每分鐘額度」→ 這次先換下一個。
  * - Google 明確指出指定模型不存在或不支援這個 API 時，自動模式今天先跳過該模型。
  */
-import { AIMedia, AIResult, Gemini, GeminiError } from './gemini'
+import { AIMedia, AIResult, Gemini, GeminiError, type ReplyLang } from './gemini'
+import { BACKUP_MODELS, backupAvailable, PROVIDER_LABEL, runBackupModel } from './backup-ai'
 import type { AppSettings } from './settings'
 import { publicQuota } from './quota-sync'
 import { googleDay, takeDailyQuota } from './util'
@@ -197,7 +198,33 @@ export const currentModel = (states: ModelState[], needMedia = false) =>
 
 
 /** 依序嘗試模型；回傳結果並註明是否因額度改用其他模型 */
-export async function analyzeWithFallback(env: Env, s: AppSettings, text: string, media: AIMedia[], fetcher?: typeof fetch, preferred?: string): Promise<AIResult> {
+export async function analyzeWithFallback(env: Env, s: AppSettings, text: string, media: AIMedia[], fetcher?: typeof fetch, preferred?: string, lang: ReplyLang = 'zh-Hant'): Promise<AIResult> {
+  if (!(await takeDailyQuota(env.DB, 'gemini', s.gemini_daily_limit))) {
+    return {
+      provider: 'gemini', status: 'rate_limited', is_demo: false, summary: '今日 AI 分析次數已達網站上限（可在管理頁「系統設定」調整）。',
+      external: false, model: null, risk_level: null, risk_points: [], advice: [], media_description: null,
+      sent_media: [...new Set(media.map((m) => m.kind))].sort(),
+    }
+  }
+  const gemini = await analyzeWithGemini(env, s, text, media, fetcher, preferred, lang)
+  // 備援只分析文字；Gemini 成功或有圖片、影片時直接回傳
+  if (gemini.status === 'ok' || media.length > 0) return gemini
+  const day = googleDay()
+  for (const b of BACKUP_MODELS) {
+    if (!backupAvailable(env, b)) continue
+    try {
+      const r = await runBackupModel(env, b, text, lang, fetcher)
+      return { ...r, fallback_note: `Gemini 暫時無法使用，已改用 ${PROVIDER_LABEL[b.provider]} 的 ${b.label}。` }
+    } catch (e) {
+      await recordModelError(env.DB, day, b.model, e)
+    }
+  }
+  // 全部備援都失敗：顯示原本 Gemini 的錯誤（較能說明狀況）
+  return gemini
+}
+
+/** 只用 Gemini 依序嘗試模型（不含網站每日上限與備援） */
+async function analyzeWithGemini(env: Env, s: AppSettings, text: string, media: AIMedia[], fetcher: typeof fetch | undefined, preferred: string | undefined, lang: ReplyLang): Promise<AIResult> {
   const all = s.gemini_models.length ? s.gemini_models : DEFAULT_MODELS
   // 使用者指定的模型排第一個；它不能用時照原本順序往下換
   const chosen = preferred ? all.find((m) => m.id === preferred) : undefined
@@ -208,9 +235,6 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
     provider: 'gemini', status, is_demo: false, summary, external: status === 'error', model,
     risk_level: null, risk_points: [], advice: [], media_description: null, sent_media: sent,
   })
-  if (!(await takeDailyQuota(env.DB, 'gemini', s.gemini_daily_limit)))
-    return fail('rate_limited', '今日 AI 分析次數已達網站上限（可在管理頁「系統設定」調整）。')
-
   const now = new Date()
   const day = googleDay(now)
   const minute = minuteKey(now)
@@ -243,7 +267,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
     let out: AIResult
     const gemini = new Gemini(env, m.id, fetcher)
     try {
-      out = await gemini.analyzeOnce(text, media)
+      out = await gemini.analyzeOnce(text, media, lang)
     } catch (e) {
       await adjustCount(env.DB, day, usedKey(m.id), gemini.extraRequests)
       await recordModelError(env.DB, day, m.id, e)
@@ -263,6 +287,9 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
       }
       lastFailure = fail('error', e.message, m.id)
       if (e.status === 408) {
+        // 逾時也算失敗：避免每個模型都等滿 3 分鐘，讓一筆查核超過背景執行的時間上限
+        failedRequests++
+        if (failedRequests >= MAX_FAILED_REQUESTS) return giveUp(m.id)
         skipped.push(`${modelLabel(m.id)} 超過 3 分鐘沒有回應`)
         continue
       }

@@ -2,7 +2,7 @@
 import { cofactsLookup, disabledLookup, LICENSE, skippedLookup } from './cofacts'
 import { factCheckLookup, FactCheckResult } from './factcheck'
 import { analyzeWithFallback } from './aimodels'
-import { AIMedia, disabledResult, notRequestedResult, publicAiResult } from './gemini'
+import { AIMedia, disabledResult, notRequestedResult, publicAiResult, type ReplyLang } from './gemini'
 import { stripUrlQueries } from './redact'
 import { analyzeText, redactPii } from './rules'
 import { AppSettings, aiMode } from './settings'
@@ -48,6 +48,8 @@ export interface AnalyzeInput {
   queryVirusTotal?: boolean
   /** 使用者指定的模型；沒指定就依設定順序自動選 */
   aiModel?: string
+  /** AI 回覆語言（跟著介面語言） */
+  replyLang?: ReplyLang
   useAi: boolean
   aiMedia?: AIMedia[]
   mediaInfo?: Record<string, unknown>
@@ -95,7 +97,7 @@ export async function runAnalysis(env: Env, s: AppSettings, inp: AnalyzeInput, a
     ? disabledResult()
     : !inp.useAi
       ? notRequestedResult()
-      : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel)
+      : await analyzeWithFallback(env, s, redacted, inp.aiMedia ?? [], inp.fetcher, inp.aiModel, inp.replyLang)
 
   const researchId = s.research_collection_enabled ? inp.researchId : null
   const withinRetention = nowIso().slice(0, 10) <= s.content_retention_until

@@ -6,7 +6,8 @@ import { publicQuota, refreshQuota } from '../quota-sync'
 import { call } from './helpers'
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
-const E = { ...env, GEMINI_API_KEY: 'k' } as Env
+// 這個檔案只測 Gemini 本身的輪替與計數；不放 Workers AI，Gemini 失敗時就不會接到備援（備援另見 backup-ai.test.ts）
+const E = { ...env, GEMINI_API_KEY: 'k', AI: undefined } as unknown as Env
 const GOOD = { risk_level: '低', summary: '一般邀約。', risk_points: [], advice: [] }
 const ok = () => new Response(JSON.stringify({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: JSON.stringify(GOOD) }] }] }))
 const S = (models: { id: string; daily: number; rpm: number; media: boolean }[]) => ({ ...DEFAULT_SETTINGS, gemini_models: models })
@@ -584,5 +585,21 @@ describe('404 換模型（例如模型被 Google 下架）', () => {
     const used = mockModels(() => refused(404, 'models/x is no longer available.'))
     await analyzeWithFallback(E, S(nine), '你好', [])
     expect(used).toHaveLength(4)
+  })
+})
+
+describe('逾時也算進失敗上限', () => {
+  it('每個模型都逾時：最多試 4 個模型就停，不會讓一筆查核等太久', async () => {
+    const { GeminiError } = await import('../gemini')
+    const nine = Array.from({ length: 9 }, (_, i) => ({ id: `slow-${i + 1}`, daily: 20, rpm: 5, media: true }))
+    const tried: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_i: RequestInfo | URL, init?: RequestInit) => {
+      tried.push(JSON.parse(String(init!.body)).model)
+      throw new DOMException('timeout', 'TimeoutError')
+    })
+    const r = await analyzeWithFallback(E, S(nine), '你好', [])
+    expect(tried).toHaveLength(4)
+    expect(r.status).toBe('error')
+    expect(GeminiError).toBeDefined()
   })
 })

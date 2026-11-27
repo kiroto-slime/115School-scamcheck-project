@@ -4,7 +4,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { getRecord, runAnalysis } from '../analysis'
 import { AppEnv, rateLimit, readBody } from '../auth'
-import { Gemini, signMediaRef, verifyMediaRef } from '../gemini'
+import { Gemini, REPLY_LANGS, signMediaRef, verifyMediaRef } from '../gemini'
 import { aiMode, LIMITS } from '../settings'
 import { HttpError, newId, nowIso } from '../util'
 
@@ -19,6 +19,8 @@ const common = {
   // 使用者指定的 AI 模型（不填＝自動）
   ai_model: z.string().regex(/^[a-z0-9][a-z0-9.-]{2,60}$/).optional(),
   use_ai: z.boolean().default(true),
+  // 介面語言：AI 用這個語言回覆（風險等級仍用固定代碼）
+  lang: z.enum(REPLY_LANGS).default('zh-Hant'),
 }
 const extraText = z.string().max(LIMITS.maxTextChars).default('')
 
@@ -32,7 +34,7 @@ analyze.post('/analyze/text', bodyLimit({ maxSize: 128 * 1024, onError: () => { 
   await rateLimit(c, 'ANALYZE_LIMITER')
   const b = await readBody(c, z.object({ text: z.string().min(1).max(LIMITS.maxTextChars), ...common }))
   const input = {
-    text: b.text, mediaType: 'text' as const, researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: b.use_ai,
+    text: b.text, mediaType: 'text' as const, researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: b.use_ai, replyLang: b.lang,
   }
   if (c.req.header('Prefer') !== 'respond-async') return c.json(await runAnalysis(c.env, c.get('settings'), input))
   const id = newId()
@@ -64,7 +66,7 @@ analyze.post('/analyze/image', async (c) => {
   if (!aiOn && !b.extra_text.trim())
     return c.json({ needs_manual_text: true, media: { notes }, message: '沒有使用 AI 時無法讀取圖片內容，請在「補充文字」輸入圖片中的文字' + (aiMode(c.env) === 'gemini' ? '（或勾選使用 AI 分析）。' : '。') })
   return c.json(await runAnalysis(c.env, c.get('settings'), {
-    text: b.extra_text, mediaType: 'image', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: b.use_ai,
+    text: b.extra_text, mediaType: 'image', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: b.use_ai, replyLang: b.lang,
     aiMedia: aiOn ? [{ kind: 'image', mime: b.mime_type, base64: b.image_base64 }] : [],
     mediaInfo: { notes, used_manual_text: Boolean(b.extra_text.trim()), ocr_status: aiOn ? 'gemini' : 'unavailable' },
   }))
@@ -130,7 +132,7 @@ analyze.post('/analyze/video', async (c) => {
       if (!b.extra_text.trim()) return c.json({ needs_manual_text: true, media: { notes }, message: '請在「補充文字」輸入影片中的文字或旁白重點。' })
     }
     return c.json(await runAnalysis(env, s, {
-      text: b.extra_text, mediaType: 'video', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: Boolean(fileForAnalysis),
+      text: b.extra_text, mediaType: 'video', researchId: b.research_id, queryCofacts: b.query_cofacts, queryGoogle: b.query_google, queryVirusTotal: b.query_virustotal, aiModel: b.ai_model, useAi: Boolean(fileForAnalysis), replyLang: b.lang,
       aiMedia: fileForAnalysis ? [{ kind: 'video', mime: fileForAnalysis.mime, uri: fileForAnalysis.uri }] : [],
       mediaInfo: { notes, used_manual_text: Boolean(b.extra_text.trim()), duration_seconds: b.duration_seconds ?? null, ocr_status: fileForAnalysis ? 'gemini' : 'unavailable' },
     }))

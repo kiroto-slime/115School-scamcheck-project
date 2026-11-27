@@ -4,6 +4,7 @@ import { Alert, Section, Spinner } from '../components/ui'
 import { AdminAiQuota } from '../components/AdminAiQuota'
 import { AdminUsageCalibration } from '../components/AdminUsageCalibration'
 import { AdminAiErrors } from '../components/AdminAiErrors'
+import { BackupAiTest } from '../components/BackupAiTest'
 import { GameQuestions } from '../components/GameQuestions'
 import { opinionTopics, type OpinionTopic } from '../../shared/result-opinion'
 import { buildWorkbook, downloadBlob, type ExportData } from '../excel'
@@ -393,7 +394,7 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
             ))}
           </div>
         </fieldset>
-        <p className="text-sm text-slate-600">先看第一頁「查核摘要」：訊息內容（遮蔽後）、可疑網址、多嚴重、Gemini 的判斷、問題與建議；11/12 以前的紀錄沒有保存訊息內容。公開或製作教材前，仍須人工檢查並確認同意範圍。</p>
+        <p className="text-sm text-slate-600">先看第一頁「查核摘要」：訊息內容（遮蔽後）、可疑網址、多嚴重、AI 的判斷（標示 Gemini 或備援 AI）、問題與建議；11/12 以前的紀錄沒有保存訊息內容。公開或製作教材前，仍須人工檢查並確認同意範圍。</p>
         {busy ? <Spinner label={busy} /> : (
           <div className="flex flex-col gap-2 sm:flex-row">
             <button className="btn-primary" onClick={exportExcel} disabled={total === 0}>匯出研究資料（.xlsx，將匯出 {total >= 200 ? '200 筆以上' : `${total} 筆`}）</button>
@@ -412,6 +413,7 @@ function DataTools({ token, call, dataset, onDone, onError }: { token: string; c
         <p className="text-xs text-slate-500">完整備份包含研究與管理資料，每次下載都需要重新驗證管理密碼。</p>
       </Section>
       <AiTest call={call} />
+      <BackupAiTest call={call} />
       <Section title="測試資料">
         <p className="text-sm">合成資料一律標示為 DEMO，不會混入正式資料。</p>
         <div className="flex flex-col gap-2 sm:flex-row">

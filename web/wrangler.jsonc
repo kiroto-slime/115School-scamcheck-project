@@ -16,6 +16,8 @@
   "migrations": [{ "tag": "text-check-v1", "new_sqlite_classes": ["TextCheck"] }],
   // 管理頁上傳的 165 名單（部署時自動建立）
   "kv_namespaces": [{ "binding": "TW165" }],
+  // Cloudflare Workers AI：Gemini 連續失敗時的備援（不需要 API 金鑰，使用本帳號的免費額度）
+  "ai": { "binding": "AI" },
   "d1_databases": [
     {
       "binding": "DB",

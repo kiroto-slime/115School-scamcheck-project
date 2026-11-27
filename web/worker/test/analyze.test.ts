@@ -436,3 +436,20 @@ describe('保存內容', () => {
     expect(savedContent('a'.repeat(5000), 'text', null).length).toBe(4000)
   })
 })
+
+describe('AI 回覆語言跟著介面語言', () => {
+  it.each([['en', '英文'], ['ja', '日文'], ['ko', '韓文'], ['zh-Hant', '繁體中文']] as const)('介面語言 %s：要求 AI 用%s回覆，風險等級仍用固定代碼', async (lang, label) => {
+    const calls = mockFetch(() => geminiReply(GOOD))
+    const r = await call('/api/analyze/text', { body: { text: 'Your parcel is held. Pay the fee at this link now.', use_ai: true, query_cofacts: false, query_google: false, lang }, envOverride: GEMINI })
+    expect(r.status).toBe(200)
+    const sent = calls.find(c => c.url.includes('/interactions'))!
+    const body = JSON.parse(String(sent.init!.body))
+    expect(body.system_instruction).toContain(label)
+    expect(body.system_instruction).toContain('這四個值不要翻譯')
+  })
+
+  it('不認得的語言代碼會被拒絕', async () => {
+    const r = await call('/api/analyze/text', { body: { text: '你好', lang: 'xx' } })
+    expect(r.status).toBe(422)
+  })
+})

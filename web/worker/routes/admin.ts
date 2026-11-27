@@ -4,7 +4,8 @@ import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin } from '../auth'
 import { clearDemo, seedDemo } from '../demo'
-import { Gemini } from '../gemini'
+import { Gemini, GeminiError } from '../gemini'
+import { BACKUP_MODELS, backupAvailable, runBackupModel } from '../backup-ai'
 import { calibrateUsage, currentModel, modelStates, siteErrors, siteUsage } from '../aimodels'
 import { adminQuota, refreshQuota, saveQuotaSchedule } from '../quota-sync'
 import { aiMode, AppSettings, saveSettings } from '../settings'
@@ -266,6 +267,30 @@ guarded.post('/ai/test', async (c) => {
   const out = await new Gemini(c.env, id).testConnection()
   await audit(c.env.DB, c.get('admin'), 'ai_test', id, out.ok ? 'ok' : 'failed')
   return c.json(out)
+})
+
+/** 測試備援 AI：用一則固定的假詐騙訊息實際呼叫每個備援模型（正式站才連得到 Workers AI） */
+guarded.post('/ai/backup-test', async (c) => {
+  await rateLimit(c, 'DEFAULT_LIMITER')
+  const sample = '【客服通知】您上月訂單被誤設為分期付款，每月將自動扣款，請立即到 ATM 操作解除，否則帳戶將被凍結。'
+  const results = []
+  for (const m of BACKUP_MODELS) {
+    if (!backupAvailable(c.env, m)) {
+      results.push({ provider: m.provider, model: m.model, label: m.label, status: 'skipped', message: m.provider === 'groq' ? '尚未設定 GROQ_API_KEY，自動略過。' : '尚未設定 Workers AI 綁定。' })
+      continue
+    }
+    const started = Date.now()
+    try {
+      const r = await runBackupModel(c.env, m, sample, 'zh-Hant')
+      results.push({ provider: m.provider, model: m.model, label: m.label, status: 'ok', seconds: Math.round((Date.now() - started) / 100) / 10,
+        risk_level: r.risk_level, summary: (r.summary ?? '').slice(0, 200) })
+    } catch (e) {
+      results.push({ provider: m.provider, model: m.model, label: m.label, status: 'error', seconds: Math.round((Date.now() - started) / 100) / 10,
+        message: e instanceof GeminiError ? `${e.message}（${e.status || '連線'}）` : '回覆無法解讀。' })
+    }
+  }
+  await audit(c.env.DB, c.get('admin'), 'backup_ai_test')
+  return c.json({ results })
 })
 
 /** 列出這把金鑰能用的模型代號（不消耗分析額度），用來設定模型順序 */

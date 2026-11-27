@@ -274,7 +274,7 @@ export default function Check() {
       }
       if (mode === 'text') {
         setBusy(t('正在送出，請先保留此頁。', 'Sending. Keep this page open.', '送信中です。このページでお待ちください。', '보내는 중입니다. 이 페이지를 열어 두세요.'))
-        const response = await postJson<AnalysisResult | CheckReceipt>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, ...(aiOn && aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }, { Prefer: 'respond-async' })
+        const response = await postJson<AnalysisResult | CheckReceipt>('/api/analyze/text', { text, ...sourceFlags, use_ai: aiOn, lang, ...(aiOn && aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }, { Prefer: 'respond-async' })
         if ('job_status' in response) {
           const saved = saveReceipt({ id: response.analysis_id, at: response.created_at, job: 'pending', level: '', media: 'text', score: null, reason: null })
           clearDraft()
@@ -284,7 +284,7 @@ export default function Check() {
         result = response
       } else {
         const ai = aiOn
-        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, ...(ai && aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
+        const common = { extra_text: extra, ...sourceFlags, use_ai: ai, lang, ...(ai && aiModel ? { ai_model: aiModel } : {}), ...(rid ? { research_id: rid } : {}) }
         if (mode === 'image') {
           setBusy('處理圖片中…')
           const img = await prepareImage(file!)

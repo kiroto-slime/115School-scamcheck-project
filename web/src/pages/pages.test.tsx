@@ -546,7 +546,7 @@ describe('查核設定收合與模型選擇', () => {
     await userEvent.click(screen.getByRole('button', { name: '開始查核' }))
     await screen.findByText('結果頁')
     expect(submitted).toEqual([{ url: '/api/analyze/text', body: {
-      text: '請立即匯款', query_cofacts: false, query_google: true, query_virustotal: false, use_ai: true, ai_model: 'b-2',
+      text: '請立即匯款', query_cofacts: false, query_google: true, query_virustotal: false, use_ai: true, lang: 'zh-Hant', ai_model: 'b-2',
     } }])
   })
 })

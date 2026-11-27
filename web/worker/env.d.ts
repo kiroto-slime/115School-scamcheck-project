@@ -10,6 +10,8 @@ interface Env {
   // 選填：VirusTotal 免費金鑰（每分鐘 4 次、每日 500 次）
   VIRUSTOTAL_API_KEY?: string
   // 選填：Cofacts 公開 API 不需要憑證，日後若 Cofacts 發給專屬憑證再填
+  // 選填：Groq 金鑰（Gemini 與 Workers AI 都失敗時的備援；沒填就自動略過）
+  GROQ_API_KEY?: string
   COFACTS_APP_ID?: string
   COFACTS_APP_SECRET?: string
 }
