@@ -100,7 +100,7 @@ const ERROR_ZH: Record<number, string> = {
 }
 
 export class GeminiError extends Error {
-  constructor(message: string, public status = 0, public reason?: 'daily_quota' | 'model_unavailable' | 'unsupported_input') {
+  constructor(message: string, public status = 0, public reason?: 'daily_quota' | 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key') {
     super(message)
   }
 }
@@ -129,8 +129,10 @@ async function toError(r: Response, model?: string): Promise<GeminiError> {
   let reason: GeminiError['reason']
   let message = ERROR_ZH[status] ?? `Gemini 服務暫時無法使用（${status}），請稍後再試。`
   if (detail.includes('API key not valid') || detail.includes('API_KEY_INVALID')) {
+    reason = 'api_key'
     message = 'Gemini API 金鑰無效，請重新複製 GEMINI_API_KEY（注意前後不要有空白）。'
   } else if (/(?:location|region) is not supported|(?:not supported|not available) [^.!]{0,120}\b(?:location|region)\b/i.test(detail)) {
+    reason = 'region'
     message = 'Google 不支援目前伺服器所在地區使用 Gemini API，請稍後再試。'
   } else if (status === 429 && /PerDay|per day|daily/i.test(raw)) {
     reason = 'daily_quota'

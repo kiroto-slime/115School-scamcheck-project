@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin } from '../auth'
 import { clearDemo, seedDemo } from '../demo'
 import { Gemini } from '../gemini'
-import { calibrateUsage, currentModel, modelStates, siteUsage } from '../aimodels'
+import { calibrateUsage, currentModel, modelStates, siteErrors, siteUsage } from '../aimodels'
 import { adminQuota, refreshQuota, saveQuotaSchedule } from '../quota-sync'
 import { aiMode, AppSettings, saveSettings } from '../settings'
 import { computeStatistics, exportData } from '../stats'
@@ -47,6 +47,8 @@ guarded.put('/ai/quota/settings', async (c) => {
   return c.json(await saveQuotaSchedule(c.env, c.get('settings').gemini_models, b.interval_minutes, b.auto_enabled))
 })
 // 手動校準：網站自己數的每日次數，可依 Google AI Studio／Explorer 看到的數字修正（只影響今天）
+// AI 錯誤紀錄：最近 7 天各模型的錯誤分類與次數（不含任何訊息內容）
+guarded.get('/ai/errors', async (c) => c.json(await siteErrors(c.env.DB)))
 guarded.get('/ai/usage', async (c) => c.json(await siteUsage(c.env.DB, c.get('settings').gemini_models)))
 guarded.put('/ai/usage', async (c) => {
   const b = await readBody(c, z.object({ model: z.string().min(1).max(80), used: z.number().int().min(0).max(1_000_000) }).strict())

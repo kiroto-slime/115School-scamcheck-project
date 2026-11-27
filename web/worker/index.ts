@@ -15,7 +15,7 @@ import { RULE_VERSION } from './rules'
 import { aiMode, cofactsMode, getSettings, googleMode, LIMITS, virusTotalMode } from './settings'
 import { tw165Meta } from './urlcheck'
 import { cleanupTw165Uploads } from './tw165-upload'
-import { currentModel, modelStates } from './aimodels'
+import { currentModel, modelStates, purgeOldCounters } from './aimodels'
 import { serviceQuotas } from './quotas'
 import { publicQuota, refreshQuota } from './quota-sync'
 import { monitoringConfigured } from './google-monitoring'
@@ -110,6 +110,7 @@ export default {
         env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(Date.now()),
       ]),
       getSettings(env.DB).then((s) => purgeExpired(env.DB, s)),
+      purgeOldCounters(env.DB),
       cleanupTw165Uploads(env),
     ]).catch(() => {
       // 使用固定事件名稱，方便維護者設定告警，也避免把資料庫訊息寫入日誌。

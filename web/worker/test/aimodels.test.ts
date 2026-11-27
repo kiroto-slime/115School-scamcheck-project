@@ -413,3 +413,45 @@ describe('後台手動校準每日次數', () => {
     }
   })
 })
+
+describe('AI 錯誤紀錄（只存分類）', () => {
+  it('依模型與錯誤類型累計次數，不存任何訊息內容；後台需登入才能看', async () => {
+    const { adminHeaders } = await import('./helpers')
+    const { siteErrors } = await import('../aimodels')
+    mockModels((m) => m === 'gone-1'
+      ? new Response(JSON.stringify({ error: { code: 404, message: 'models/gone-1 is not found for API version v1beta' } }), { status: 404 })
+      : m === 'busy-2' ? new Response('{"error":{"code":503,"message":"high demand"}}', { status: 503 })
+      : m === 'min-3' ? new Response('{"error":{"message":"per minute"}}', { status: 429 }) : ok())
+    const s = S([{ id: 'gone-1', daily: 5, rpm: 5, media: true }, { id: 'busy-2', daily: 5, rpm: 5, media: true },
+      { id: 'min-3', daily: 5, rpm: 5, media: true }, { id: 'fine-4', daily: 5, rpm: 5, media: true }])
+    expect((await analyzeWithFallback(E, s, '我的手機 0912345678 祕密內容', [])).model).toBe('fine-4')
+    const report = await siteErrors(env.DB)
+    const today = report.days.find(d => d.day === googleDay())!
+    expect(today.rows).toEqual(expect.arrayContaining([
+      { model: 'gone-1', category: 'model_unavailable', status: 404, count: 1 },
+      { model: 'busy-2', category: 'busy', status: 503, count: 1 },
+      { model: 'min-3', category: 'minute_quota', status: 429, count: 1 },
+    ]))
+    expect(today.rows.some(r => r.model === 'fine-4')).toBe(false)
+    const stored = await env.DB.prepare("SELECT group_concat(name, ' ') AS names FROM usage_counters WHERE name GLOB 'gemini_err:*'").first<{ names: string }>()
+    expect(stored!.names).not.toMatch(/0912|祕密|high demand|not found/)
+    expect((await call('/api/admin/ai/errors')).status).toBe(401)
+    const r = await call('/api/admin/ai/errors', { headers: await adminHeaders() })
+    expect(r.status).toBe(200)
+    expect(r.json.days.length).toBe(7)
+    expect(r.json.days[0].day).toBe(googleDay())
+  })
+
+  it('每日排程刪除 90 天以前的舊計數，近期的保留', async () => {
+    const { purgeOldCounters } = await import('../aimodels')
+    const old = new Date(Date.now() - 91 * 86_400_000).toISOString().slice(0, 10)
+    const recent = new Date(Date.now() - 89 * 86_400_000).toISOString().slice(0, 10)
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO usage_counters (day, name, count) VALUES (?, 'gemini_err:x|busy|503', 2)").bind(old),
+      env.DB.prepare("INSERT INTO usage_counters (day, name, count) VALUES (?, 'gemini_err:x|busy|503', 3)").bind(recent),
+    ])
+    await purgeOldCounters(env.DB)
+    const days = (await env.DB.prepare("SELECT day FROM usage_counters WHERE name = 'gemini_err:x|busy|503'").all<{ day: string }>()).results.map(r => r.day)
+    expect(days).toEqual([recent])
+  })
+})

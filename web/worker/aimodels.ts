@@ -122,6 +122,49 @@ export async function modelStates(db: D1Database, models: ModelConf[], now = new
   })
 }
 
+/** AI 錯誤分類：只存分類與狀態碼，不存 Google 錯誤原文（原文可能夾帶檔案網址或輸入片段） */
+export type ErrorCategory = 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key' | 'daily_quota'
+  | 'minute_quota' | 'busy' | 'timeout' | 'network' | 'bad_response' | 'other'
+const errKey = (model: string, category: ErrorCategory, status: number) => `gemini_err:${model}|${category}|${status}`
+
+export function errorCategory(e: unknown): { category: ErrorCategory; status: number } {
+  if (!(e instanceof GeminiError)) return { category: 'bad_response', status: 0 }
+  const status = e.status
+  if (e.reason) return { category: e.reason, status }
+  if (status === 429) return { category: 'minute_quota', status }
+  if (status === 408) return { category: 'timeout', status }
+  if (status >= 500) return { category: 'busy', status }
+  if (status === 0) return { category: 'network', status }
+  return { category: 'other', status }
+}
+
+async function recordModelError(db: D1Database, day: string, model: string, e: unknown) {
+  const { category, status } = errorCategory(e)
+  await db.prepare('INSERT INTO usage_counters (day, name, count) VALUES (?, ?, 1) ON CONFLICT(day, name) DO UPDATE SET count = count + 1')
+    .bind(day, errKey(model, category, status)).run()
+}
+
+/** 後台用：最近 7 個配額日（美國太平洋時間）每個模型的錯誤類型與次數，新的在前 */
+export async function siteErrors(db: D1Database, now = new Date()) {
+  const days = Array.from({ length: 7 }, (_, i) => googleDay(new Date(now.getTime() - i * 86_400_000)))
+  const { results } = await db.prepare(`SELECT day, name, count FROM usage_counters WHERE name GLOB 'gemini_err:*'
+      AND day IN (${days.map(() => '?').join(',')})`).bind(...days).all<{ day: string; name: string; count: number }>()
+  return {
+    days: days.map(day => ({
+      day,
+      rows: results.filter(r => r.day === day).map(r => {
+        const [model, category, status] = r.name.slice('gemini_err:'.length).split('|')
+        return { model, category: category as ErrorCategory, status: Number(status), count: r.count }
+      }).sort((a, b) => b.count - a.count || a.model.localeCompare(b.model)),
+    })),
+  }
+}
+
+/** 每日排程：刪除 90 天以前的計數（每日次數、每分鐘次數、錯誤紀錄），今天與近期的保留 */
+export async function purgeOldCounters(db: D1Database) {
+  await db.prepare("DELETE FROM usage_counters WHERE day < date('now', '-90 days')").run()
+}
+
 /** 後台用：網站今天（美國太平洋時間）替每個模型記了幾次 */
 export async function siteUsage(db: D1Database, models: ModelConf[], now = new Date()) {
   const day = googleDay(now)
@@ -187,6 +230,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
       out = await gemini.analyzeOnce(text, media)
     } catch (e) {
       await adjustCount(env.DB, day, usedKey(m.id), gemini.extraRequests)
+      await recordModelError(env.DB, day, m.id, e)
       if (!(e instanceof GeminiError)) return fail('error', 'Gemini 回覆格式無法解讀，請再試一次。', m.id)
       if (e.status === 429) {
         if (e.reason === 'daily_quota') {
