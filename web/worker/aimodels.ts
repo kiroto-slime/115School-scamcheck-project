@@ -129,6 +129,8 @@ const errKey = (model: string, category: ErrorCategory, status: number) => `gemi
 /** 管理員警告：地區錯誤重試超過 2 次後才成功的查核筆數 */
 const REGION_WARN_KEY = 'gemini_warn:region_retry'
 const REGION_RETRY_MS = 1000
+/** 一筆查核累計 5xx 或地區錯誤的請求達到此數就停止（擁有者 2026-11-27 決定為 4） */
+const MAX_FAILED_REQUESTS = 4
 
 export function errorCategory(e: unknown): { category: ErrorCategory; status: number } {
   if (!(e instanceof GeminiError)) return { category: 'bad_response', status: 0 }
@@ -222,6 +224,11 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
   // 只有 Google 明確回了這個錯誤才重試；Gemini 還在回應時照常等待（最多 3 分鐘），不會被當成錯誤。
   const regionRetried = new Set<string>()
   let regionFailures = 0
+  // 失敗上限：Google 真的掛掉時（全面 5xx 或地區錯誤），一筆查核最多送 4 次失敗請求就停，不把每個模型的額度都燒掉
+  let failedRequests = 0
+  const giveUp = (model: string) => fail('error', regionFailures === failedRequests
+    ? 'Google 暫時不接受目前伺服器所在地區的連線（已自動重試），請稍後再試。'
+    : 'Google Gemini 目前暫時無法使用（連續多次失敗），請稍後再試。', model)
   for (let i = 0; i < models.length; i++) {
     const m = models[i]
     const st = states.find((x) => x.id === m.id)!
@@ -261,6 +268,8 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
       }
       // Google 那邊暫時太忙（503 high demand 等）：換下一個模型
       if (e.status >= 500) {
+        failedRequests += 1 + gemini.extraRequests // 最後這次加上自動重送的 5xx
+        if (failedRequests >= MAX_FAILED_REQUESTS) return giveUp(m.id)
         skipped.push(`${modelLabel(m.id)} 暫時太多人使用`)
         continue
       }
@@ -275,6 +284,8 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
       }
       if (e.reason === 'region') {
         regionFailures++
+        failedRequests++
+        if (failedRequests >= MAX_FAILED_REQUESTS) return giveUp(m.id)
         if (!regionRetried.has(m.id)) {
           regionRetried.add(m.id)
           await new Promise((r) => setTimeout(r, REGION_RETRY_MS))

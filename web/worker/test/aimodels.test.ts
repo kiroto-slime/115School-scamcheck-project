@@ -474,11 +474,12 @@ describe('地區錯誤重試', () => {
 
   it('同一模型重試仍失敗就換下一個模型；累計失敗超過 2 次才成功時，記一筆管理員警告', async () => {
     const { siteErrors } = await import('../aimodels')
-    const used = mockModels((m) => m === 'ok-3' ? ok() : region())
-    const s = S([{ id: 'reg-a', daily: 5, rpm: 5, media: true }, { id: 'reg-b', daily: 5, rpm: 5, media: true }, { id: 'ok-3', daily: 5, rpm: 5, media: true }])
+    let bCalls = 0
+    const used = mockModels((m) => m === 'reg-b' && ++bCalls === 2 ? ok() : region())
+    const s = S([{ id: 'reg-a', daily: 5, rpm: 5, media: true }, { id: 'reg-b', daily: 5, rpm: 5, media: true }])
     const r = await analyzeWithFallback(E, s, '你好', [])
-    expect(r).toMatchObject({ status: 'ok', model: 'ok-3' })
-    expect(used).toEqual(['reg-a', 'reg-a', 'reg-b', 'reg-b', 'ok-3'])
+    expect(r).toMatchObject({ status: 'ok', model: 'reg-b' })
+    expect(used).toEqual(['reg-a', 'reg-a', 'reg-b', 'reg-b'])
     expect((await siteErrors(env.DB)).days[0].warnings.region_retry).toBe(1)
   })
 
@@ -517,4 +518,30 @@ describe('地區錯誤重試', () => {
     await analyzeWithFallback(E, s, '你好', [])
     expect(used.filter(m => m === 'bad-1')).toHaveLength(1)
   })
+})
+
+describe('每筆查核的失敗上限（4 次）', () => {
+  const nine = Array.from({ length: 9 }, (_, i) => ({ id: `cap-${i + 1}`, daily: 20, rpm: 5, media: true }))
+  const s9 = S(nine)
+  const usedOf = async () => (await modelStates(env.DB, nine)).reduce((sum, m) => sum + (20 - m.remaining), 0)
+
+  it.each([
+    ['Google 全面 503', () => new Response('{"error":{"code":503,"message":"high demand"}}', { status: 503 })],
+    ['每次都地區錯誤', () => new Response('{"error":{"code":400,"message":"User location is not supported for the API use."}}', { status: 400 })],
+  ] as const)('%s：一筆查核最多送 4 次、只扣 4 次，然後告訴使用者稍後再試', async (_name, res) => {
+    let requests = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { requests++; return res() })
+    const r = await analyzeWithFallback(E, s9, '你好', [])
+    expect(requests).toBe(4)
+    expect(await usedOf()).toBe(4)
+    expect(r.status).toBe('error')
+    expect(r.summary).toContain('稍後再試')
+  }, 60_000)
+
+  it('其他模型的額度沒有被白白扣掉', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{"error":{"code":503,"message":"x"}}', { status: 503 }))
+    await analyzeWithFallback(E, s9, '你好', [])
+    const remaining = (await modelStates(env.DB, nine)).map(m => m.remaining)
+    expect(remaining.slice(2)).toEqual(Array(7).fill(20))
+  }, 60_000)
 })
