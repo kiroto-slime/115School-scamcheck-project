@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { AppEnv, checkPassword, createToken, rateLimit, readBody, requireAdmin } from '../auth'
 import { clearDemo, seedDemo } from '../demo'
 import { Gemini } from '../gemini'
-import { currentModel, modelStates } from '../aimodels'
+import { calibrateUsage, currentModel, modelStates, siteUsage } from '../aimodels'
 import { adminQuota, refreshQuota, saveQuotaSchedule } from '../quota-sync'
 import { aiMode, AppSettings, saveSettings } from '../settings'
 import { computeStatistics, exportData } from '../stats'
@@ -45,6 +45,16 @@ guarded.put('/ai/quota/settings', async (c) => {
     auto_enabled: z.boolean(),
   }).strict())
   return c.json(await saveQuotaSchedule(c.env, c.get('settings').gemini_models, b.interval_minutes, b.auto_enabled))
+})
+// 手動校準：網站自己數的每日次數，可依 Google AI Studio／Explorer 看到的數字修正（只影響今天）
+guarded.get('/ai/usage', async (c) => c.json(await siteUsage(c.env.DB, c.get('settings').gemini_models)))
+guarded.put('/ai/usage', async (c) => {
+  const b = await readBody(c, z.object({ model: z.string().min(1).max(80), used: z.number().int().min(0).max(1_000_000) }).strict())
+  const models = c.get('settings').gemini_models
+  if (!models.some(m => m.id === b.model)) throw new HttpError(404, '找不到這個模型，請重新整理後再選一次。')
+  await calibrateUsage(c.env.DB, b.model, b.used)
+  await audit(c.env.DB, c.get('admin'), 'calibrate_model_usage', b.model, String(b.used))
+  return c.json(await siteUsage(c.env.DB, models))
 })
 guarded.post('/logout', async (c) => {
   await c.env.DB.batch([

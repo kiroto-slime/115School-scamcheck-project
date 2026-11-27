@@ -5,6 +5,8 @@
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
+# 本機文件、交接、備份與資安報告（只留本機）
+/docs/
 **/data/
 *.db
 *.sqlite*

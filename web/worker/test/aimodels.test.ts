@@ -69,11 +69,11 @@ describe('模型輪替', () => {
     expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(0)
   })
 
-  it('每分鐘額度：這次換下一個，但不扣光今天的次數', async () => {
+  it('每分鐘額度：這次換下一個；429 不算 Google 的每日額度，先扣的次數要退回', async () => {
     mockModels((m) => m === 'a-1' ? new Response('{"error":{"message":"per minute"}}', { status: 429 }) : ok())
     const s = S([{ id: 'a-1', daily: 20, rpm: 5, media: true }, { id: 'b-2', daily: 20, rpm: 5, media: true }])
     expect((await analyzeWithFallback(E, s, '你好', [])).model).toBe('b-2')
-    expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(19)
+    expect((await modelStates(env.DB, s.gemini_models)).map(m => m.remaining)).toEqual([20, 19])
   })
 
   it('代號錯誤（404）今天跳過；有圖片時跳過只能看文字的模型', async () => {
@@ -332,6 +332,29 @@ describe('Google 忙碌', () => {
     const r = await analyzeWithFallback(E, S([{ id: 'busy-1', daily: 5, rpm: 5, media: true }, { id: 'b-2', daily: 5, rpm: 5, media: true }]), '你好', [])
     expect(r).toMatchObject({ status: 'ok', model: 'b-2' })
     expect(r.fallback_note).toContain('暫時太多人使用')
+    // 503 會自動重送一次，兩次都送到 Google、都算每日額度
+    expect((await modelStates(env.DB, [{ id: 'busy-1', daily: 5, rpm: 5, media: true }]))[0].remaining).toBe(3)
+  })
+
+  it('第一次 503、重送成功：兩次都算每日額度', async () => {
+    let calls = 0
+    mockModels(() => ++calls === 1 ? new Response('{"error":{"code":503,"message":"high demand"}}', { status: 503 }) : ok())
+    const s = S([{ id: 'retry-1', daily: 5, rpm: 5, media: true }])
+    expect((await analyzeWithFallback(E, s, '你好', [])).model).toBe('retry-1')
+    expect(calls).toBe(2)
+    expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(3)
+  })
+
+  it('連線失敗後重送成功：第一次沒送到 Google，只算一次', async () => {
+    let calls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      if (++calls === 1) throw new TypeError('network down')
+      return ok()
+    })
+    const s = S([{ id: 'net-1', daily: 5, rpm: 5, media: true }])
+    expect((await analyzeWithFallback(E, s, '你好', [])).model).toBe('net-1')
+    expect(calls).toBe(2)
+    expect((await modelStates(env.DB, s.gemini_models))[0].remaining).toBe(4)
   })
 })
 
@@ -349,5 +372,44 @@ describe('提示注入防護', () => {
     expect(prompt).toContain('[已移除假冒的標記]')
     expect(body!.system_instruction).toContain('manipulation_attempt')
     expect(r.manipulation).toBe(true)
+  })
+})
+
+describe('後台手動校準每日次數', () => {
+  it('需要登入；校準後網站從這個數字接著數，只影響今天，並寫入操作紀錄', async () => {
+    const { adminHeaders } = await import('./helpers')
+    expect((await call('/api/admin/ai/usage')).status).toBe(401)
+    expect((await call('/api/admin/ai/usage', { method: 'PUT', body: { model: 'gemini-2.5-flash', used: 3 } })).status).toBe(401)
+    const h = await adminHeaders()
+    const before = await call('/api/admin/ai/usage', { headers: h })
+    expect(before.status).toBe(200)
+    expect(before.json.day).toBe(googleDay())
+    const row = before.json.models.find((m: { id: string }) => m.id === 'gemini-2.5-flash')
+    expect(row).toMatchObject({ daily: 20 })
+    const put = await call('/api/admin/ai/usage', { method: 'PUT', headers: h, body: { model: 'gemini-2.5-flash', used: 17 } })
+    expect(put.status).toBe(200)
+    expect(put.json.models.find((m: { id: string }) => m.id === 'gemini-2.5-flash').used).toBe(17)
+    const states = await modelStates(env.DB, DEFAULT_SETTINGS.gemini_models)
+    expect(states.find(m => m.id === 'gemini-2.5-flash')!.remaining).toBe(3)
+    // 可以往下修正（例如網站多數了）
+    await call('/api/admin/ai/usage', { method: 'PUT', headers: h, body: { model: 'gemini-2.5-flash', used: 5 } })
+    expect((await modelStates(env.DB, DEFAULT_SETTINGS.gemini_models)).find(m => m.id === 'gemini-2.5-flash')!.remaining).toBe(15)
+    const log = await env.DB.prepare("SELECT target, detail FROM audit_logs WHERE action = 'calibrate_model_usage' ORDER BY rowid DESC LIMIT 1").first<{ target: string; detail: string }>()
+    expect(log).toEqual({ target: 'gemini-2.5-flash', detail: '5' })
+    // 明天不受影響
+    const tomorrow = new Date(Date.now() + 86_400_000)
+    expect((await modelStates(env.DB, DEFAULT_SETTINGS.gemini_models, tomorrow)).find(m => m.id === 'gemini-2.5-flash')!.remaining).toBe(20)
+  })
+
+  it('不在設定清單的模型、負數、小數、超大數字都拒絕', async () => {
+    const { adminHeaders } = await import('./helpers')
+    const h = await adminHeaders()
+    const unknown = await call('/api/admin/ai/usage', { method: 'PUT', headers: h, body: { model: 'not-a-model', used: 1 } })
+    expect(unknown.status).toBe(404)
+    expect(unknown.json.detail).toContain('找不到這個模型')
+    for (const body of [{ model: 'gemini-2.5-flash', used: -1 }, { model: 'gemini-2.5-flash', used: 1.5 },
+      { model: 'gemini-2.5-flash', used: 2_000_000 }, { model: 'gemini-2.5-flash' }, { model: 'gemini-2.5-flash', used: 1, extra: true }]) {
+      expect((await call('/api/admin/ai/usage', { method: 'PUT', headers: h, body })).status).toBe(422)
+    }
   })
 })

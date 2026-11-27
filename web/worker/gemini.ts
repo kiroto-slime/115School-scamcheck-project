@@ -168,6 +168,11 @@ function parseJsonLoose(text: string): Record<string, unknown> {
 }
 
 export class Gemini {
+  /**
+   * 這次分析中，除了第一次之外又送到 Google 的請求數（5xx 後自動重送）。
+   * Google 會把 5xx 的請求算進每日額度；連線失敗多半沒送到 Google，不列入。
+   */
+  extraRequests = 0
   // 預設用箭頭函式包住 fetch：Cloudflare 直接以物件方法呼叫 fetch 會出現 Illegal invocation
   constructor(private env: Env, private model: string, private fetcher: typeof fetch = (input, init) => fetch(input, init), private retryDelayMs = 1500, private timeoutMs = 180_000) {}
 
@@ -196,6 +201,7 @@ export class Gemini {
       }
       // 429 多半是額度用完，重試只會更浪費額度，所以不重試
       if ([500, 502, 503, 504].includes(r.status) && attempt === 0) {
+        this.extraRequests++
         await sleep(this.retryDelayMs)
         continue
       }

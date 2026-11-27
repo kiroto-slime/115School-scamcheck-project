@@ -59,6 +59,16 @@ async function reserveCount(db: D1Database, day: string, name: string, limit: nu
   return row?.count ?? null
 }
 
+/**
+ * 調整已記的次數（可正可負，最低為 0），讓網站的計數貼近 Google 的計算方式：
+ * 依 Google 開發者論壇的說明，400 與 5xx 的請求會算進每日額度、429 不算。
+ */
+async function adjustCount(db: D1Database, day: string, name: string, delta: number) {
+  if (!delta) return
+  await db.prepare(`INSERT INTO usage_counters (day, name, count) VALUES (?, ?, MAX(0, ?))
+      ON CONFLICT(day, name) DO UPDATE SET count = MAX(0, count + ?)`).bind(day, name, delta, delta).run()
+}
+
 async function setCount(db: D1Database, day: string, name: string, count: number) {
   await db.prepare('INSERT INTO usage_counters (day, name, count) VALUES (?, ?, ?) ON CONFLICT(day, name) DO UPDATE SET count = MAX(count, excluded.count)').bind(day, name, count).run()
 }
@@ -112,6 +122,24 @@ export async function modelStates(db: D1Database, models: ModelConf[], now = new
   })
 }
 
+/** 後台用：網站今天（美國太平洋時間）替每個模型記了幾次 */
+export async function siteUsage(db: D1Database, models: ModelConf[], now = new Date()) {
+  const day = googleDay(now)
+  const { results } = await db.prepare("SELECT name, count FROM usage_counters WHERE day = ? AND name GLOB 'gemini:*'")
+    .bind(day).all<{ name: string; count: number }>()
+  const counts = new Map(results.map(r => [r.name, r.count]))
+  return { day, models: models.map(m => ({ id: m.id, label: modelLabel(m.id), daily: m.daily, used: counts.get(usedKey(m.id)) ?? 0 })) }
+}
+
+/**
+ * 後台手動校準：把某模型今天的次數改成管理者從 Google AI Studio／Explorer 看到的數字。
+ * 之後的查核從這個數字接著累加；換日後自然歸零。
+ */
+export async function calibrateUsage(db: D1Database, model: string, used: number, now = new Date()) {
+  await db.prepare('INSERT INTO usage_counters (day, name, count) VALUES (?, ?, ?) ON CONFLICT(day, name) DO UPDATE SET count = excluded.count')
+    .bind(googleDay(now), usedKey(model), used).run()
+}
+
 /** 目前會被使用的模型（有圖片／影片時只看能分析媒體的；這一分鐘用完的先跳過） */
 export const currentModel = (states: ModelState[], needMedia = false) =>
   states.find((m) => !m.unavailable && m.remaining > 0 && m.minute_left > 0 && (!needMedia || m.media)) ??
@@ -154,15 +182,19 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
     const attempt = await reserveCount(env.DB, day, usedKey(m.id), m.daily)
     if (attempt === null) continue
     let out: AIResult
+    const gemini = new Gemini(env, m.id, fetcher)
     try {
-      out = await new Gemini(env, m.id, fetcher).analyzeOnce(text, media)
+      out = await gemini.analyzeOnce(text, media)
     } catch (e) {
+      await adjustCount(env.DB, day, usedKey(m.id), gemini.extraRequests)
       if (!(e instanceof GeminiError)) return fail('error', 'Gemini 回覆格式無法解讀，請再試一次。', m.id)
       if (e.status === 429) {
         if (e.reason === 'daily_quota') {
           await setCount(env.DB, day, usedKey(m.id), m.daily)
           skipped.push(`${modelLabel(m.id)} 今日額度已用完`)
         } else {
+          // 429 不算 Google 的每日額度：退回送出前先扣的一次
+          await adjustCount(env.DB, day, usedKey(m.id), -1)
           // Google 說這一分鐘滿了：記下來，讓查核頁顯示冷卻中
           await setCount(env.DB, day, rpmKey(m.id, minute), m.rpm)
           skipped.push(`${modelLabel(m.id)} 這一分鐘的次數已滿`)
@@ -190,6 +222,7 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
       }
       return lastFailure
     }
+    await adjustCount(env.DB, day, usedKey(m.id), gemini.extraRequests)
     await recordModelAvailability(env.DB, day, m.id, attempt, true)
     return { ...out, sent_media: sent, fallback_note: skipped.length ? `已自動改用 ${modelLabel(m.id)}（${skipped.join('；')}）` : null }
   }
