@@ -123,7 +123,7 @@ export async function modelStates(db: D1Database, models: ModelConf[], now = new
 }
 
 /** AI 錯誤分類：只存分類與狀態碼，不存 Google 錯誤原文（原文可能夾帶檔案網址或輸入片段） */
-export type ErrorCategory = 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key' | 'daily_quota'
+export type ErrorCategory = 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key' | 'not_found' | 'daily_quota'
   | 'minute_quota' | 'busy' | 'timeout' | 'network' | 'bad_response' | 'other'
 const errKey = (model: string, category: ErrorCategory, status: number) => `gemini_err:${model}|${category}|${status}`
 /** 管理員警告：地區錯誤重試超過 2 次後才成功的查核筆數 */
@@ -280,6 +280,13 @@ export async function analyzeWithFallback(env: Env, s: AppSettings, text: string
       }
       if (e.reason === 'unsupported_input') {
         skipped.push(`${modelLabel(m.id)} 不支援這次查核的格式`)
+        continue
+      }
+      if (e.reason === 'not_found') {
+        // 例如模型被 Google 下架：這一筆跳過，不標記不可用（避免誤判把模型鎖整天），並計入失敗上限
+        failedRequests++
+        if (failedRequests >= MAX_FAILED_REQUESTS) return giveUp(m.id)
+        skipped.push(`${modelLabel(m.id)} 暫時找不到（可能已被 Google 下架）`)
         continue
       }
       if (e.reason === 'region') {

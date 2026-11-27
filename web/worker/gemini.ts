@@ -100,7 +100,7 @@ const ERROR_ZH: Record<number, string> = {
 }
 
 export class GeminiError extends Error {
-  constructor(message: string, public status = 0, public reason?: 'daily_quota' | 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key') {
+  constructor(message: string, public status = 0, public reason?: 'daily_quota' | 'model_unavailable' | 'unsupported_input' | 'region' | 'api_key' | 'not_found') {
     super(message)
   }
 }
@@ -143,6 +143,9 @@ async function toError(r: Response, model?: string): Promise<GeminiError> {
       /(?:response[ _-]format|mime[ _-]type|media type|input modality|thinking[ _-]level|structured output|system[ _-]instruction)/i.test(detail)) {
     reason = 'unsupported_input'
     message = '這個模型不支援這次查核的格式，請改用其他模型或調整輸入內容。'
+  } else if (status === 404 && !/\bfiles\//i.test(detail)) {
+    // 與上傳檔案無關的 404（例如模型被 Google 下架）：這一筆換下一個模型；檔案過期的 404 換模型也沒用，維持停止
+    reason = 'not_found'
   }
   return new GeminiError(message, status, reason)
 }

@@ -99,11 +99,9 @@ describe('模型輪替', () => {
   const refused = (status: number, message: string) => Response.json({ error: { message } }, { status })
 
   // 「地區不支援」改為重試並換模型（2026-11-27 擁有者決定），由下方「地區錯誤重試」測試涵蓋
+  // 與檔案無關的 404 改為跳過該模型、換下一個（同日決定），由下方「404 換模型」測試涵蓋
   it.each([
-    [404, 'Model first is not available for the Interactions API for this project.', '資源'],
     [404, 'File files/private-example was not found.', '資源'],
-    [404, 'models/someone-else is not found', '資源'],
-    [404, 'models/first-other is not found', '資源'],
     [403, 'The billing account for the project is disabled.', '權限'],
     [400, 'API key not valid. Please pass a valid API key.', '金鑰無效'],
   ] as const)('單次請求受到限制時不逐個送出，也不封鎖模型 %s %s', async (status, message, expected) => {
@@ -544,4 +542,47 @@ describe('每筆查核的失敗上限（4 次）', () => {
     const remaining = (await modelStates(env.DB, nine)).map(m => m.remaining)
     expect(remaining.slice(2)).toEqual(Array(7).fill(20))
   }, 60_000)
+})
+
+describe('404 換模型（例如模型被 Google 下架）', () => {
+  const refused = (status: number, message: string) => Response.json({ error: { code: status, message } }, { status })
+
+  it('看不懂的 404：這一筆跳過該模型、換下一個成功；不把模型標成不可用，錯誤紀錄記成「找不到資源」', async () => {
+    const { siteErrors } = await import('../aimodels')
+    const used = mockModels((m) => m === 'retired-1' ? refused(404, 'models/retired-1 is no longer available. Please migrate.') : ok())
+    const s = S([{ id: 'retired-1', daily: 5, rpm: 5, media: true }, { id: 'next-2', daily: 5, rpm: 5, media: true }])
+    const r = await analyzeWithFallback(E, s, '你好', [])
+    expect(r).toMatchObject({ status: 'ok', model: 'next-2' })
+    expect(used).toEqual(['retired-1', 'next-2'])
+    expect((await modelStates(env.DB, s.gemini_models)).every(m => !m.unavailable)).toBe(true)
+    expect((await siteErrors(env.DB)).days[0].rows).toContainEqual({ model: 'retired-1', category: 'not_found', status: 404, count: 1 })
+  })
+
+  it.each([
+    'Model first is not available for the Interactions API for this project.',
+    'models/someone-else is not found',
+    'models/first-other is not found',
+  ])('與模型有關的 404 都換下一個，全部失敗才顯示錯誤（%s）', async (message) => {
+    const used = mockModels(() => refused(404, message))
+    const two = S([{ id: 'first', daily: 20, rpm: 10, media: true }, { id: 'second', daily: 20, rpm: 10, media: true }])
+    const r = await analyzeWithFallback(E, two, '測試', [])
+    expect(used).toEqual(['first', 'second'])
+    expect(r.status).toBe('error')
+    expect(r.summary).toContain('資源')
+  })
+
+  it('上傳檔案過期的 404 不換模型（換了也一樣找不到），直接請使用者重新上傳', async () => {
+    const used = mockModels(() => refused(404, 'File files/abc123 was not found.'))
+    const two = S([{ id: 'first', daily: 20, rpm: 10, media: true }, { id: 'second', daily: 20, rpm: 10, media: true }])
+    const r = await analyzeWithFallback(E, two, '測試', [])
+    expect(used).toEqual(['first'])
+    expect(r.summary).toContain('重新上傳')
+  })
+
+  it('每個模型都 404 時，一樣受 4 次失敗上限保護', async () => {
+    const nine = Array.from({ length: 9 }, (_, i) => ({ id: `gone-${i + 1}`, daily: 20, rpm: 5, media: true }))
+    const used = mockModels(() => refused(404, 'models/x is no longer available.'))
+    await analyzeWithFallback(E, S(nine), '你好', [])
+    expect(used).toHaveLength(4)
+  })
 })

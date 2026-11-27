@@ -11,6 +11,7 @@ const LABELS: Record<string, string> = {
   unsupported_input: '這個模型不支援這次的格式（只影響該筆）',
   region: 'Google 拒絕連線地區（網站會自動重試並換模型）',
   api_key: 'Gemini 金鑰無效',
+  not_found: '找不到資源（可能模型已被 Google 下架，網站會換下一個模型）',
   daily_quota: 'Google 回報今日額度已用完',
   minute_quota: '這一分鐘太多請求（429，不算額度）',
   busy: 'Google 暫時忙碌（5xx）',
