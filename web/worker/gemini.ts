@@ -12,13 +12,17 @@ const BASE = 'https://generativelanguage.googleapis.com'
 const INTERACTIONS = `${BASE}/v1beta/interactions`
 
 /** AI 回覆語言，跟著使用者的介面語言（risk_level 一律用固定代碼，畫面再翻譯） */
-export type ReplyLang = 'zh-Hant' | 'en' | 'ja' | 'ko'
-export const REPLY_LANGS = ['zh-Hant', 'en', 'ja', 'ko'] as const
+export const REPLY_LANGS = ['zh-Hant', 'en', 'ja', 'ko', 'vi', 'id', 'th', 'zh-Hans'] as const
+export type ReplyLang = typeof REPLY_LANGS[number]
 const LANG_RULE: Record<ReplyLang, string> = {
   'zh-Hant': '請用繁體中文（臺灣用語）撰寫 summary、risk_points、advice、media_description',
   en: '請用英文（English）撰寫 summary、risk_points、advice、media_description',
   ja: '請用日文（日本語）撰寫 summary、risk_points、advice、media_description',
   ko: '請用韓文（한국어）撰寫 summary、risk_points、advice、media_description',
+  vi: '請用越南文（Tiếng Việt）撰寫 summary、risk_points、advice、media_description',
+  id: '請用印尼文（Bahasa Indonesia）撰寫 summary、risk_points、advice、media_description',
+  th: '請用泰文（ไทย）撰寫 summary、risk_points、advice、media_description',
+  'zh-Hans': '請用簡體中文（中國大陸用語）撰寫 summary、risk_points、advice、media_description，但臺灣機構名稱保留原名',
 }
 
 /** Gemini 與備援 AI 共用的系統提示詞 */

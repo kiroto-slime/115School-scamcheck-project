@@ -25,16 +25,16 @@ export function Navigation({ mobile = false, open = false, ballEnabled, onToggle
   const nav = useRef<HTMLElement>(null)
   const { t } = useLanguage()
   const labels: Record<string, string> = {
-    日常查核: t('日常查核', 'Everyday checks', '日常の確認', '일상 확인'),
-    參與研究: t('參與研究', 'Take part', '研究に参加', '연구 참여'),
-    關於網站: t('關於網站', 'About this site', 'このサイトについて', '사이트 안내'),
-    防詐查核: t('防詐查核', 'Scam check', '詐欺チェック', '사기 확인'),
-    查核紀錄: t('查核紀錄', 'Check history', '確認履歴', '확인 기록'),
-    研究測驗: t('研究測驗', 'Research quiz', '研究テスト', '연구 퀴즈'),
-    產品與需求: t('產品與需求', 'Share feedback', 'ご意見・ご要望', '의견 보내기'),
-    對話: t('對話', 'Chat', 'チャット', '대화'),
-    隱私與說明: t('隱私與說明', 'Privacy & help', 'プライバシー・説明', '개인정보 및 도움말'),
-    小遊戲: t('小遊戲', 'Mini game', 'ミニゲーム', '미니 게임'),
+    日常查核: t('日常查核'),
+    參與研究: t('參與研究'),
+    關於網站: t('關於網站'),
+    防詐查核: t('防詐查核'),
+    查核紀錄: t('查核紀錄'),
+    研究測驗: t('研究測驗'),
+    產品與需求: t('產品與需求'),
+    對話: t('對話'),
+    隱私與說明: t('隱私與說明'),
+    小遊戲: t('小遊戲'),
   }
   const reset = () => nav.current?.querySelectorAll<HTMLElement>('.nav-item').forEach((item) => item.style.removeProperty('--nav-shift'))
   const followPointer = (event: PointerEvent<HTMLElement>) => {
@@ -46,7 +46,7 @@ export function Navigation({ mobile = false, open = false, ballEnabled, onToggle
     })
   }
   return (
-    <nav ref={nav} id={mobile ? 'main-nav' : undefined} aria-label={t('主選單','Main menu','メインメニュー','주 메뉴')}
+    <nav ref={nav} id={mobile ? 'main-nav' : undefined} aria-label={t('主選單')}
       className={mobile ? `mobile-nav ${open ? 'is-open' : ''}` : 'desktop-nav'}
       onPointerMove={followPointer} onPointerLeave={reset}>
       {GROUPS.map((group) => (
@@ -62,7 +62,7 @@ export function Navigation({ mobile = false, open = false, ballEnabled, onToggle
       ))}
       <LanguageMenu />
       <button className="chat-switch" role="switch" aria-checked={ballEnabled} onClick={onToggleBall}>
-        {t('顯示客服小球','Show help bubble','ヘルプボタンを表示','도움말 버튼 표시')}<span aria-hidden="true" />
+        {t('顯示客服小球')}<span aria-hidden="true" />
       </button>
     </nav>
   )

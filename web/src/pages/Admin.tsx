@@ -474,7 +474,7 @@ function SettingsTab({ call, onDone }: { call: Call; onDone: (s: string) => void
         <label className="block">新回覆保存到
           <input className="input" type="date" min={f.opinion_deadline || undefined} value={f.opinion_keep_until ?? ''} onChange={e => set('opinion_keep_until', e.target.value)} /></label>
         <button className="btn-secondary" onClick={async () => setOpinions(await call('/api/admin/result-opinions'))}>查看最近 200 則意見</button>
-        {opinions && (opinions.length ? <ul className="space-y-2">{opinions.map((row,i) => <li key={i} className="break-words"><strong>{opinionTopics[row.topic][0]}</strong> · {row.submitted_day}<p>{row.suggestion || '未填簡答'}</p></li>)}</ul> : <p>尚無保存中的意見。</p>)}
+        {opinions && (opinions.length ? <ul className="space-y-2">{opinions.map((row,i) => <li key={i} className="break-words"><strong>{opinionTopics[row.topic]}</strong> · {row.submitted_day}<p>{row.suggestion || '未填簡答'}</p></li>)}</ul> : <p>尚無保存中的意見。</p>)}
       </Section>
       <Section title="AI 與外部查詢">
         <label className="block"><span className="label">AI 模型順序（用完一個自動換下一個）</span>

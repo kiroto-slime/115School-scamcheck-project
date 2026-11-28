@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cofactsLookup, similarity } from '../cofacts'
-import { extractText, Gemini, signMediaRef, verifyMediaRef } from '../gemini'
+import { extractText, Gemini, REPLY_LANGS, signMediaRef, systemPrompt, verifyMediaRef } from '../gemini'
 import { savedContent } from '../analysis'
 import { DEFAULT_SETTINGS, saveSettings } from '../settings'
 import { call, count, SCAM } from './helpers'
@@ -438,7 +438,7 @@ describe('保存內容', () => {
 })
 
 describe('AI 回覆語言跟著介面語言', () => {
-  it.each([['en', '英文'], ['ja', '日文'], ['ko', '韓文'], ['zh-Hant', '繁體中文']] as const)('介面語言 %s：要求 AI 用%s回覆，風險等級仍用固定代碼', async (lang, label) => {
+  it.each([['en', '英文'], ['ja', '日文'], ['ko', '韓文'], ['zh-Hant', '繁體中文'], ['vi', '越南文（Tiếng Việt）'], ['id', '印尼文（Bahasa Indonesia）'], ['th', '泰文（ไทย）'], ['zh-Hans', '簡體中文']] as const)('介面語言 %s：要求 AI 用%s回覆，風險等級仍用固定代碼', async (lang, label) => {
     const calls = mockFetch(() => geminiReply(GOOD))
     const r = await call('/api/analyze/text', { body: { text: 'Your parcel is held. Pay the fee at this link now.', use_ai: true, query_cofacts: false, query_google: false, lang }, envOverride: GEMINI })
     expect(r.status).toBe(200)
@@ -446,6 +446,14 @@ describe('AI 回覆語言跟著介面語言', () => {
     const body = JSON.parse(String(sent.init!.body))
     expect(body.system_instruction).toContain(label)
     expect(body.system_instruction).toContain('這四個值不要翻譯')
+  })
+
+  it('支援的回覆語言依選單順序共八種', () => {
+    expect(REPLY_LANGS).toEqual(['zh-Hant', 'en', 'ja', 'ko', 'vi', 'id', 'th', 'zh-Hans'])
+  })
+
+  it('簡體中文回覆保留臺灣機構名稱', () => {
+    expect(systemPrompt('zh-Hans')).toContain('臺灣機構名稱保留原名')
   })
 
   it('不認得的語言代碼會被拒絕', async () => {

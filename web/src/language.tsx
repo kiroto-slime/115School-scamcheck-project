@@ -1,44 +1,62 @@
-import { createContext, useContext, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { CHOSEN_KEY, loadDictionary, SAVED_KEY, setActiveDictionary, TAB_KEY, tc, translate, type BootResult, type Loaders } from './i18n/dictionary'
+import { languages, type Language } from './i18n/languages'
 
-export const languages = { 'zh-Hant': '繁體中文', en: 'English', ja: '日本語', ko: '한국어' } as const
-export type Language = keyof typeof languages
-export type Copy = readonly [string, string, string, string]
-const index = { 'zh-Hant': 0, en: 1, ja: 2, ko: 3 } as const
-export const translate = (lang: Language, ...copy: Copy) => copy[index[lang]]
-const levels: Record<string, Copy> = {
-  高: ['高', 'High', '高', '높음'], 中: ['中', 'Moderate', '中', '중간'], 低: ['低', 'Low', '低', '낮음'],
-  資訊不足: ['資訊不足', 'Insufficient information', '情報不足', '정보 부족'],
-  無法判斷: ['無法判斷', 'Unable to determine', '判定できません', '판단할 수 없음'],
-}
-export const riskLabel = (lang: Language, level: string) => levels[level] ? translate(lang, ...levels[level]) : level
-const isLanguage = (value: string | null): value is Language => value !== null && Object.hasOwn(languages, value)
+export { languages, type Language } from './i18n/languages'
+export { msg, tc, translate } from './i18n/dictionary'
 
-function readLanguage(): Language {
-  try {
-    const saved = localStorage.getItem('interfaceLanguage')
-    if (isLanguage(saved)) return saved
-  } catch { /* 儲存空間停用時仍可選擇語言。 */ }
-  return 'zh-Hant'
-}
+export type Translate = (zh: string, ...values: (string | number)[]) => string
 
-const LanguageContext = createContext({
-  lang: 'zh-Hant' as Language,
-  t: (...copy: Copy) => copy[0],
-  choose: (_lang: Language) => {},
+// 風險等級的資料代碼維持中文，只在畫面翻譯；用情境鍵避免和其他同字（例如文字大小「中」）混用。
+const levels = new Set(['高', '中', '低', '資訊不足', '無法判斷'])
+// 列出全部情境鍵，讓完整性檢查確認每種語言都有譯文。
+const riskKeys = [tc('風險等級', '高'), tc('風險等級', '中'), tc('風險等級', '低'), tc('風險等級', '資訊不足'), tc('風險等級', '無法判斷')]
+void riskKeys
+export const riskLabel = (level: string) => (levels.has(level) ? tc('風險等級', level) : level)
+
+const LanguageContext = createContext<{ lang: Language; t: Translate; choose: (lang: Language) => void }>({
+  lang: 'zh-Hant', t: translate, choose: () => {},
 })
+const NOTICE_KEY = 'languageNoticeSeen'
+const seen = () => { try { return sessionStorage.getItem(NOTICE_KEY) === '1' } catch { return false } }
 
-export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState(readLanguage)
-  useLayoutEffect(() => { document.documentElement.lang = lang === 'zh-Hant' ? 'zh-Hant-TW' : lang }, [lang])
+const defaultInitial: BootResult = { lang: 'zh-Hant', shown: 'zh-Hant', failed: null }
+
+export function LanguageProvider({ initial = defaultInitial, loaders, children }: { initial?: BootResult; loaders?: Loaders; children: ReactNode }) {
+  const [shown, setShown] = useState<Language>(initial.shown)
+  const [notice, setNotice] = useState(initial.failed && !seen() ? initial.failed : null)
+  const ticket = useRef(0)
+  useLayoutEffect(() => { document.documentElement.lang = shown === 'zh-Hant' ? 'zh-Hant-TW' : shown }, [shown])
   const value = useMemo(() => ({
-    lang,
-    t: (...copy: Copy) => translate(lang, ...copy),
+    lang: shown,
+    // 依目前語言產生新函式，讓依賴 t 的畫面在換語言時重新計算。
+    t: ((zh, ...values) => translate(zh, ...values)) as Translate,
     choose: (next: Language) => {
-      setLang(next)
-      try { localStorage.setItem('interfaceLanguage', next) } catch { /* 保留此次選擇。 */ }
+      const mine = ++ticket.current
+      loadDictionary(next, loaders).then(dict => {
+        if (mine !== ticket.current) return
+        setActiveDictionary(dict)
+        setShown(next)
+        try {
+          localStorage.setItem(SAVED_KEY, next)
+          sessionStorage.setItem(TAB_KEY, next)
+          sessionStorage.setItem(CHOSEN_KEY, '1')
+        } catch { /* 這次仍照選擇顯示。 */ }
+      }, () => { /* 下載不到就維持原語言，使用者再選一次會重試。 */ })
     },
-  }), [lang])
-  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
+  }), [shown, loaders])
+  const close = () => {
+    setNotice(null)
+    try { sessionStorage.setItem(NOTICE_KEY, '1') } catch { /* 這次已關閉。 */ }
+  }
+  return <LanguageContext.Provider value={value}>
+    {notice && <div className="language-notice" role="status" lang="en">
+      <span>Showing English for now. <span lang={notice}>{languages[notice]}</span> will load next time.</span>
+      <button type="button" className="language-notice-switch" onClick={() => { value.choose('en'); close() }}>Use English</button>
+      <button type="button" aria-label="Close" onClick={close}>×</button>
+    </div>}
+    {children}
+  </LanguageContext.Provider>
 }
 
 export function useLanguage() { return useContext(LanguageContext) }

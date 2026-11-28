@@ -9,7 +9,8 @@ const mobile = (d: (typeof devices)[string]) => ({ ...d, browserName: 'chromium'
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
-  use: { baseURL: 'http://127.0.0.1:5173', trace: 'retain-on-failure' },
+  // 固定繁中，讓既有測試照舊以繁中執行；語言判斷的測試另外指定。
+  use: { baseURL: 'http://127.0.0.1:5173', trace: 'retain-on-failure', locale: 'zh-TW' },
   projects: [
     { name: 'iPhone 13 (模擬)', use: mobile(devices['iPhone 13']) },
     { name: 'Pixel 7 (模擬)', use: mobile(devices['Pixel 7']) },

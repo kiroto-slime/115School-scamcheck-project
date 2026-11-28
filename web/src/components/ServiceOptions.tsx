@@ -38,10 +38,10 @@ function Icon({ name }: { name: string }) {
 function SendTags({ sends }: { sends: ServiceOption['sends'] }) {
   const { t } = useLanguage()
   const names: Record<ServiceOption['sends'][number], string> = {
-    文字: t('文字', 'Text', 'テキスト', '텍스트'),
-    網址: t('網址', 'URL', 'URL', 'URL'),
-    網域: t('網域', 'Domain', 'ドメイン', '도메인'),
-    圖片影片: t('圖片影片', 'Images/videos', '画像・動画', '이미지·동영상'),
+    文字: t('文字'),
+    網址: t('網址'),
+    網域: t('網域'),
+    圖片影片: t('圖片影片'),
   }
   return (
     <span className="service-tags">
@@ -58,10 +58,10 @@ function FlowDiagram() {
   const box = 'rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-center text-xs text-slate-700'
   const arrow = <svg viewBox="0 0 24 12" className="h-3 w-6 shrink-0 text-slate-400" aria-hidden="true"><path d="M1 6h20m-5-4 5 4-5 4" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
   return (
-    <div className="flex items-center justify-between gap-1" role="img" aria-label={t('你的內容先在本網站遮蔽個資，再送到你勾選的服務', 'This site masks personal details in text before sending it to the services you select.', 'このサイトでテキスト内の個人情報を伏せてから、選択したサービスに送信します。', '이 사이트에서 텍스트의 개인정보를 가린 뒤 선택한 서비스에 보냅니다.')}>
-      <div className={box}>{t('你的內容', 'Your content', '入力内容', '입력 내용')}</div>{arrow}
-      <div className={box}>{t('遮蔽手機、身分證、Email', 'Mask phone numbers, ID numbers and email addresses', '電話番号・身分証番号・メールアドレスを伏せる', '전화번호·신분증 번호·이메일 가리기')}</div>{arrow}
-      <div className={box}>{t('只送到', 'Send only to', '送信先は', '전송 대상은')}<br />{t('打勾的服務', 'selected services', '選択したサービスのみ', '선택한 서비스만')}</div>
+    <div className="flex items-center justify-between gap-1" role="img" aria-label={t('你的內容先在本網站遮蔽個資，再送到你勾選的服務')}>
+      <div className={box}>{t('你的內容')}</div>{arrow}
+      <div className={box}>{t('遮蔽手機、身分證、Email')}</div>{arrow}
+      <div className={box}>{t('只送到')}<br />{t('打勾的服務')}</div>
     </div>
   )
 }
@@ -77,7 +77,7 @@ function SelectAll({ options }: { options: ServiceOption[] }) {
       {/* 全部都勾了才打勾；部分勾選時維持空白，按一下就全部勾起來 */}
       <input type="checkbox" className="h-5 w-5 shrink-0" disabled={!usable.length} checked={all}
         onChange={() => usable.forEach((o) => o.onChange(!all))} />
-      <span className="text-sm font-medium">{t('全選', 'Select all', 'すべて選択', '모두 선택')}</span>
+      <span className="text-sm font-medium">{t('全選')}</span>
     </label>
   )
 }
@@ -85,18 +85,18 @@ function SelectAll({ options }: { options: ServiceOption[] }) {
 export function ServiceOptions({ options }: { options: ServiceOption[] }) {
   const { t } = useLanguage()
   const descriptions: Record<string, string> = {
-    cofacts: t('比對公開查核資料', 'Compare with public fact-checks', '公開の検証記事と照合', '공개 팩트체크 자료와 대조'), ai: t('協助解釋內容中的風險', 'Explain risks in the content', '内容に含まれるリスクを解説', '내용에 담긴 위험 설명'), google: t('查詢網址安全及公開查核文章', 'Check links and search public fact-checks', 'URLの安全性と公開の検証記事を検索', 'URL 안전성 검사 및 공개 팩트체크 검색'), vt: t('查詢網域已有的安全報告', 'Look up existing domain reports', 'ドメインの既存の安全性レポートを検索', '도메인의 기존 보안 보고서 조회'),
+    cofacts: t('比對公開查核資料'), ai: t('協助解釋內容中的風險'), google: t('查詢網址安全及公開查核文章'), vt: t('查詢網域已有的安全報告'),
   }
   return (
     <div className="space-y-3">
-      <p className="text-sm font-medium text-slate-700">{t('要一起查詢的服務', 'Services to include', '利用するサービス', '함께 조회할 서비스')}</p>
+      <p className="text-sm font-medium text-slate-700">{t('要一起查詢的服務')}</p>
       {options.length > 1 && <SelectAll options={options} />}
       <div className="service-row text-sm text-slate-700">
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-teal-700" aria-hidden="true">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3"><path d="m5 12 5 5 9-10" /></svg>
         </span>
-        <span className="min-w-0 flex-1">{t('規則分析、165 涉詐網站名單', 'Rule checks and Taiwan’s 165 fraud site list', 'ルール分析と台湾の165詐欺サイトリスト', '규칙 분석 및 대만 165 사기 사이트 목록')}<span className="block text-xs text-slate-500">{t('基本檢查，一定執行，不送出', 'Always checked on this site. No external requests.', '常にサイト内で実行。外部送信はありません。', '항상 사이트 안에서 검사하며 외부로 전송하지 않습니다.')}</span></span>
-        <span className="text-xs text-slate-500">{t('基本', 'Basic', '基本', '기본')}</span>
+        <span className="min-w-0 flex-1">{t('規則分析、165 涉詐網站名單')}<span className="block text-xs text-slate-500">{t('基本檢查，一定執行，不送出')}</span></span>
+        <span className="text-xs text-slate-500">{t('基本')}</span>
       </div>
       {options.map((o) => (
         <div key={o.key} className={`service-row ${o.key === 'ai' ? 'ai-service-row' : ''}`} data-service={o.key}>
@@ -113,7 +113,7 @@ export function ServiceOptions({ options }: { options: ServiceOption[] }) {
         </div>
       ))}
       <details className="rounded-xl bg-slate-50 p-3">
-        <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-teal-800">{t('查看更多：這些服務會收到什麼？', 'What do these services receive?', '各サービスに何が送信されますか？', '각 서비스에는 무엇을 보내나요?')}</summary>
+        <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-teal-800">{t('查看更多：這些服務會收到什麼？')}</summary>
         <div className="mt-2 space-y-3">
           <FlowDiagram />
           <ul className="space-y-2 text-sm">
@@ -124,7 +124,7 @@ export function ServiceOptions({ options }: { options: ServiceOption[] }) {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-slate-500">{t('不勾選就不會送出。外部服務的結果可能誤判或漏判，查無資料不代表安全。圖片、影片只有勾選 Gemini 才會原樣送到 Google。', 'Only selected services receive data. They may flag harmless content or miss a threat. No match does not mean safe. Original images and videos go to Google only if you select Gemini.', '選択したサービスにのみ送信します。外部サービスには誤検出や見落としがあり、該当なしでも安全とは限りません。画像・動画はGeminiを選択した場合のみ、そのままGoogleに送信されます。', '선택한 서비스에만 데이터를 보냅니다. 외부 서비스는 잘못 판단하거나 위험을 놓칠 수 있어 검색 결과가 없어도 안전하다는 뜻은 아닙니다. Gemini를 선택한 경우에만 원본 이미지와 동영상을 Google에 보냅니다.')}</p>
+          <p className="text-xs text-slate-500">{t('不勾選就不會送出。外部服務的結果可能誤判或漏判，查無資料不代表安全。圖片、影片只有勾選 Gemini 才會原樣送到 Google。')}</p>
         </div>
       </details>
     </div>

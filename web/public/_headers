@@ -23,3 +23,11 @@
   X-Robots-Tag: noindex, nofollow
 /history
   X-Robots-Tag: noindex, nofollow
+/:lang/result
+  X-Robots-Tag: noindex, nofollow
+/:lang/result/*
+  X-Robots-Tag: noindex, nofollow
+/:lang/admin
+  X-Robots-Tag: noindex, nofollow
+/:lang/history
+  X-Robots-Tag: noindex, nofollow

@@ -1,2 +1,7 @@
 # 回傳固定的查核結果樣板，保留原有網址與編號。
 /result/* /result 200
+# 語言網址的私人頁（例：/en/history、/en/result/編號）也回傳不收錄的樣板。
+/:lang/history /history 200
+/:lang/admin /admin 200
+/:lang/result /result 200
+/:lang/result/* /result 200

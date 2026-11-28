@@ -107,17 +107,17 @@ const LEVEL_STYLE: Record<string, string> = {
   資訊不足: 'bg-slate-100 text-slate-700 border-slate-300',
 }
 export function RiskBadge({ level }: { level: string }) {
-  const { t, lang } = useLanguage()
+  const { t } = useLanguage()
   return (
     <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold ${LEVEL_STYLE[level] ?? LEVEL_STYLE['資訊不足']}`}>
-      {t('風險等級：', 'Risk level: ', 'リスク：', '위험 수준: ')}{riskLabel(lang,level)}
+      {t('風險等級：')}{riskLabel(level)}
     </span>
   )
 }
 
 export function ServiceConnectionError() {
   const { t } = useLanguage()
-  return <Alert kind="error">{t('無法連線到服務，請稍後重新整理頁面。', 'Cannot connect to the service. Refresh the page and try again.', 'サービスに接続できません。しばらくしてからページを再読み込みしてください。', '서비스에 연결할 수 없습니다. 잠시 후 페이지를 새로 고쳐 주세요.')}</Alert>
+  return <Alert kind="error">{t('無法連線到服務，請稍後重新整理頁面。')}</Alert>
 }
 
 export function Section({ title, step, children }: { title: string; step?: number; children: ReactNode }) {

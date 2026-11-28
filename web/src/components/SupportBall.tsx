@@ -114,7 +114,7 @@ export function SupportBall({ mobileEnabled }: { mobileEnabled: boolean }) {
   }
   return <div className={'support-layer' + (mobileEnabled ? ' mobile-enabled' : '')}>
     <button ref={ball} className="support-ball" style={{ left: x, top: y, width: size, height: size }}
-      aria-label={t('客服問答','Help','ヘルプ','도움말')} title={t('客服問答','Help','ヘルプ','도움말')} aria-haspopup="dialog" aria-expanded={phase === 'open'}
+      aria-label={t('客服問答')} title={t('客服問答')} aria-haspopup="dialog" aria-expanded={phase === 'open'}
       onPointerDown={startDrag} onPointerMove={move} onPointerUp={finishTouch} onLostPointerCapture={event => {
         if (drag.current?.id === event.pointerId) drag.current = null
       }}
